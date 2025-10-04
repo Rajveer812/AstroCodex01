@@ -1,0 +1,66 @@
+# Import required modules
+import requests
+from geopy.geocoders import Nominatim
+from datetime import datetime, timedelta
+
+def get_city_coordinates(city_name):
+	"""Get latitude and longitude for a city name using geopy."""
+	geolocator = Nominatim(user_agent="astro_codex_app")
+	location = geolocator.geocode(city_name)
+	if not location:
+		raise ValueError(f"City '{city_name}' not found.")
+	return location.latitude, location.longitude
+
+def fetch_nasa_power_monthly_averages(city_name, year, month):
+	"""
+	Fetch monthly average rainfall (mm/day) and temperature (°C) for a city and month using NASA POWER API.
+	Returns: dict with 'avg_rainfall_mm', 'avg_temperature_c', 'latitude', 'longitude'
+	"""
+	# Get coordinates
+	lat, lon = get_city_coordinates(city_name)
+
+	# Format start and end date for the month
+	start_date = datetime(year, month, 1)
+	if month == 12:
+		end_date = datetime(year + 1, 1, 1)
+	else:
+		end_date = datetime(year, month + 1, 1)
+	start_str = start_date.strftime('%Y%m%d')
+	end_str = (end_date - timedelta(days=1)).strftime('%Y%m%d')
+
+	# NASA POWER API endpoint
+	base_url = "https://power.larc.nasa.gov/api/temporal/daily/point"
+	params = {
+		"parameters": "PRECTOTCORR,T2M",
+		"community": "RE",
+		"longitude": lon,
+		"latitude": lat,
+		"start": start_str,
+		"end": end_str,
+		"format": "JSON"
+	}
+	response = requests.get(base_url, params=params)
+	response.raise_for_status()
+	data = response.json()
+
+	# Extract daily values
+	try:
+		daily_data = data["properties"]["parameter"]
+		rainfall = list(daily_data["PRECTOTCORR"].values())
+		temperature = list(daily_data["T2M"].values())
+	except Exception as e:
+		raise RuntimeError(f"Error parsing NASA POWER API response: {e}")
+
+	# Calculate averages
+	avg_rainfall = sum(rainfall) / len(rainfall) if rainfall else None
+	avg_temperature = sum(temperature) / len(temperature) if temperature else None
+
+	return {
+		"city": city_name,
+		"latitude": lat,
+		"longitude": lon,
+		"month": month,
+		"year": year,
+		"avg_rainfall_mm": avg_rainfall,
+		"avg_temperature_c": avg_temperature
+	}
