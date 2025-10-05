@@ -4,7 +4,7 @@ from streamlit_folium import st_folium
 import requests
 import datetime
 import os
-from services.openai_ai import summarize_weather, is_openai_configured
+from services.gemini_ai import summarize_weather, is_gemini_configured
 
 # --- Streamlit Page Config ---
 st.set_page_config(page_title="🛰 NASA Weather Explorer", layout="wide")
@@ -106,12 +106,12 @@ if st.session_state['clicked_coords']:
         st.markdown(f"<b>🌡 Temperature:</b> {weather['T2M']} °C  ", unsafe_allow_html=True)
         st.markdown(f"<b>🌬 Wind Speed:</b> {weather['WS2M']} m/s  ", unsafe_allow_html=True)
         st.markdown(f"<b>💧 Humidity:</b> {weather['RH2M']} %", unsafe_allow_html=True)
-        # AI summary (OpenAI only)
-        if is_openai_configured():
+        # AI summary (Gemini)
+        if is_gemini_configured():
             summary = summarize_weather({"T2M": weather['T2M'], "WS2M": weather['WS2M'], "RH2M": weather['RH2M']})
-            st.success(f"🤖 OpenAI: {summary}")
+            st.success(f"🤖 Gemini: {summary}")
         else:
-            st.info("AI summary unavailable (add OPENAI_API_KEY).")
+            st.info("AI summary unavailable (add GEMINI_API_KEY).")
     else:
         st.error("No valid NASA POWER data for this location/date.")
     st.markdown("</div>", unsafe_allow_html=True)

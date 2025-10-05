@@ -17,18 +17,23 @@ from utils.helpers import process_forecast, process_forecast_with_fallback
 from utils.scoring import parade_suitability_score, get_event_suggestion
 from ui.components import show_result
 from ui.sections import render_header, render_inputs, render_suitability_card, render_nasa_section, render_nasa_results, render_pollution_stats
-from services.openai_ai import summarize_weather as oa_summarize, answer_weather_question as oa_answer, is_openai_configured, check_openai_health, get_openai_diagnostics
+from services.gemini_ai import (
+    summarize_weather as ai_summarize_weather,
+    answer_weather_question as ai_answer_weather_question,
+    is_gemini_configured,
+    check_gemini_health,
+)
 from ui.map_panel import render_map_section
-# OpenAI-only helper wrappers
+# Gemini helper wrappers
 def ai_summarize(weather_dict):
-    if is_openai_configured():
-        return oa_summarize(weather_dict)
-    return 'OpenAI not configured (add OPENAI_API_KEY).'
+    if is_gemini_configured():
+        return ai_summarize_weather(weather_dict)
+    return 'Gemini not configured (add GEMINI_API_KEY).'
 
 def ai_answer(question: str, context: str):
-    if is_openai_configured():
-        return oa_answer(question, context)
-    return '(AI disabled) Configure OPENAI_API_KEY.'
+    if is_gemini_configured():
+        return ai_answer_weather_question(question, context)
+    return '(AI disabled) Configure GEMINI_API_KEY.'
 
 # --- Set Page Config ---
 st.set_page_config(
@@ -37,17 +42,10 @@ st.set_page_config(
     layout="wide"
 )
 
-# Optional OpenAI diagnostics (hidden behind an expander at page top sidebar)
-with st.sidebar.expander("🔍 AI Diagnostics", expanded=False):
-    health = check_openai_health()
-    diag = get_openai_diagnostics()
-    st.write({
-        "configured": health.get("configured"),
-        "ok": health.get("ok"),
-        "model": health.get("model"),
-        "last_error": diag.get("last_error"),
-        "key_fingerprint": diag.get("key_fingerprint"),  # partial only
-    })
+# Optional Gemini diagnostics
+with st.sidebar.expander("🔍 AI Diagnostics (Gemini)", expanded=False):
+    g_health = check_gemini_health()
+    st.write(g_health)
 
 # --- Custom CSS for better UI ---
 st.markdown("""
@@ -280,10 +278,10 @@ if st.session_state['show_compare']:
                 parts = [f"{r['City']}→{r['_used_date']}" for r in subs]
                 st.info("Forecast fallback used (nearest available date): " + ", ".join(parts))
             # AI comparison summary
-            if is_openai_configured():
+            if is_gemini_configured():
                 try:
                     comp_prompt = "Compare these cities for a weekend outdoor parade and give pros and cons then a recommendation.\n" + df_cmp.to_csv(index=False)
-                    ai_cmp = oa_answer("Which city is better and why?", comp_prompt)
+                    ai_cmp = ai_answer_weather_question("Which city is better and why?", comp_prompt)
                     st.session_state['compare_ai_summary'] = ai_cmp
                 except Exception as e:
                     st.warning(f"AI summary failed: {e}")
@@ -644,7 +642,7 @@ with st.expander("🌍 Climate Change Insight", expanded=False):
                 st.session_state['climate_ai_comment'] = None
             ai_cols = st.columns([1,3])
             with ai_cols[0]:
-                if is_openai_configured() and st.button("AI Commentary", help="Generate AI summary of climate trends"):
+                if is_gemini_configured() and st.button("AI Commentary", help="Generate AI summary of climate trends"):
                     try:
                         # Build concise CSV-like context
                         sample_tail = chart_df.tail(10)
@@ -652,7 +650,7 @@ with st.expander("🌍 Climate Change Insight", expanded=False):
                         prompt = textwrap.dedent(f"""
                         Provide a concise (<=120 words) climate trend commentary for {city.title()} for month {calendar.month_name[insight_month]}. Highlight rainfall and temperature direction, magnitude (% and °C), and event planning implications. Data confidence is {qual}. Data (recent vs historical):\nRain delta {rain_delta_abs:+.2f} mm/day ({rain_delta_pct:+.1f}%), Temp delta {temp_delta_abs:+.1f} °C ({temp_delta_pct:+.1f}%).\nRecent period {period_label_recent} vs historical {period_label_hist}.\nRecent tail data:\n{ctx}
                         """)
-                        ai_resp = oa_answer("Climate trend commentary", prompt)
+                        ai_resp = ai_answer("Climate trend commentary", prompt)
                         st.session_state['climate_ai_comment'] = ai_resp
                     except Exception as e:
                         st.warning(f"AI commentary failed: {e}")
@@ -680,8 +678,8 @@ if toggle_col.button("", key="hidden_toggle_button", help="internal", on_click=l
 if st.session_state['show_chat']:
     with st.container():
         st.markdown("<div class='chat-panel'>", unsafe_allow_html=True)
-        on = is_openai_configured()
-        badge = f"<span style='background:{'#16a34a' if on else '#64748b'}; color:#fff; padding:2px 8px; border-radius:12px; font-size:0.65rem; font-weight:600;'>{'AI OpenAI' if on else 'AI OFF'}</span>"
+        on = is_gemini_configured()
+        badge = f"<span style='background:{'#16a34a' if on else '#64748b'}; color:#fff; padding:2px 8px; border-radius:12px; font-size:0.65rem; font-weight:600;'>{'AI Gemini' if on else 'AI OFF'}</span>"
         st.markdown(f"""
             <div class='chat-header'>AI Weather Assistant {badge}
                 <span class='chat-close' onClick=\"window.parent.postMessage({{type:'chat_toggle_py'}},'*')\">✕</span>
@@ -692,7 +690,7 @@ if st.session_state['show_chat']:
             </div>
             """, unsafe_allow_html=True)
         if not on:
-            st.warning("OpenAI not configured. Add OPENAI_API_KEY to .streamlit/secrets.toml")
+            st.warning("Gemini not configured. Add GEMINI_API_KEY to .streamlit/secrets.toml")
         # Messages
         msgs_html = [f"<div class='chat-msg-{m['role']}'>{m['text']}</div>" for m in st.session_state['chat_messages']]
         st.markdown(f"<div class='chat-messages'>{''.join(msgs_html) if msgs_html else '<div style=\"font-size:0.75rem;color:#64748b;\">No messages yet. Ask a weather question.</div>'}</div>", unsafe_allow_html=True)

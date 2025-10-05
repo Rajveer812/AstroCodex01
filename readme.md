@@ -1,13 +1,4 @@
 # 🌦️ Astrocast
-
-Astrocast is an intelligent weather & climate planning assistant for outdoor events. It blends real-time forecasts, NASA climatology, air quality and AI commentary.
-
----
-
-## 🚀 Key Features
-✅ City + Date Weather Forecast (5-day window)  
-✅ Parade / Event Suitability Score (0–100)  
-✅ AI Weather Summary & Share/Copy Card  
 ✅ Dual-City Weekend Comparison (scores, rain probability, AI pros/cons)  
 ✅ NASA POWER Historical Averages  
 ✅ Climate Change Insight (custom periods, anomalies %, dual-axis Plotly chart, AI commentary)  
@@ -24,18 +15,15 @@ Astrocast is an intelligent weather & climate planning assistant for outdoor eve
 - OpenAI API (Summaries & Insights)  
 - Folium + NASA GIBS (Map Layers)  
 - Plotly (Dual-axis climate chart)  
-
+   GEMINI_API_KEY = "your_gemini_key"
 ---
 
 ## 📂 Project Structure
-will-it-rain/
+   set GEMINI_API_KEY=your_gemini_key      # or $env:GEMINI_API_KEY="your_gemini_key"
 │── app.py # Main Streamlit app
-│── requirements.txt # Dependencies
 │── README.md # Documentation
 │
-│── config/ # API keys, constants
-│── services/ # External API logic
-│── utils/ # Helpers
+ AI features now rely solely on `GEMINI_API_KEY`; any legacy `OPENAI_API_KEY` entry is ignored.
 │── ui/ # UI components
 
 
