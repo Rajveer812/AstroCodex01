@@ -23,6 +23,7 @@ from services.openai_ai import (
     is_openai_configured,
     check_openai_health,
     reset_openai_client,
+    openai_diagnostics,
 )
 from ui.map_panel import render_map_section
 # OpenAI-only helper wrappers
@@ -145,7 +146,7 @@ render_header()
 
 # --- AI Status Bar (top) ---
 with st.container():
-    ai_col1, ai_col2, ai_col3, ai_col4 = st.columns([1.2,1,1,1])
+    ai_col1, ai_col2, ai_col3, ai_col4, ai_col5 = st.columns([1.2,1,1,1,1.2])
     with ai_col1:
         if st.button("🔄 Reset AI Client", help="Clear cached OpenAI client (use after adding key in deployment)"):
             reset_openai_client()
@@ -167,6 +168,19 @@ with st.container():
                 st.warning(err[:160], icon="⚠️")
         else:
             st.caption("Use 'Check AI' to view status")
+    with ai_col5:
+        if st.button("🛠 Diagnostics", help="Show detailed OpenAI diagnostics"):
+            st.session_state['openai_diag'] = openai_diagnostics()
+        if 'openai_diag' in st.session_state:
+            diag = st.session_state['openai_diag']
+            st.markdown(
+                f"<div style='font-size:0.6rem; line-height:1.15; background:#f1f5f9; padding:6px 8px; border-radius:8px;'>"
+                f"legacy={diag.get('legacy_mode')} configured={diag.get('configured')} ok={diag.get('ok')}<br>"
+                f"env_key={diag.get('env_has_key')} secrets_key={diag.get('secrets_has_key')}<br>"
+                f"model={diag.get('model','?')} error={(diag.get('error') or '')[:70]}" 
+                f"</div>",
+                unsafe_allow_html=True
+            )
 city, date, check_weather, forecast_placeholder, cols = render_inputs()
 # Remove unnecessary empty white box
 # st.markdown("<div style='margin-top: 2em;'></div>", unsafe_allow_html=True)
