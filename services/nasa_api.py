@@ -1,14 +1,36 @@
+"""NASA POWER API integration helpers.
+
+Includes geocoding via geopy (Nominatim) and convenience wrappers for
+monthly and daily aggregations. Adds defensive error handling so a
+missing optional dependency surfaces a clear message in the Streamlit UI.
+"""
+
 # Import required modules
 import requests
-from geopy.geocoders import Nominatim
 from datetime import datetime, timedelta
+
+try:
+	from geopy.geocoders import Nominatim  # type: ignore
+except ModuleNotFoundError as e:  # pragma: no cover - import guard
+	# Defer raising until actually needed so the rest of the app can still load
+	Nominatim = None  # type: ignore
+	_geopy_import_error = e
+else:
+	_geopy_import_error = None
 
 
 def get_city_coordinates(city_name: str) -> tuple[float, float]:
+	"""Return latitude and longitude for a city name using geopy.
+
+	Raises:
+		RuntimeError: If geopy is not installed.
+		ValueError: If the city cannot be geocoded.
 	"""
-	Get latitude and longitude for a city name using geopy.
-	Raises ValueError if city not found.
-	"""
+	if _geopy_import_error or Nominatim is None:  # type: ignore
+		raise RuntimeError(
+			"geopy is required for city geocoding but is not installed. "
+			"Add 'geopy' to requirements.txt and reinstall."
+		)
 	geolocator = Nominatim(user_agent="astro_codex_app")
 	location = geolocator.geocode(city_name)
 	if not location:
