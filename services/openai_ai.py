@@ -337,16 +337,16 @@ def _heuristic_answer(question: str, context: str) -> str:
     import re as _re
     metrics = {}
     # Expected context pattern inserted by app: 'temp 23.4C, humidity 55%, wind 3.2 m/s, rain 0.0 mm'
-    temp_m = _re.search(r"temp\s+(-?\d+\.?\d*)c", context, _re.IGNORECASE)
+    temp_m = _re.search(r"temp\s*[:=]?\s*(-?\d+\.?\d*)\s*c", context, _re.IGNORECASE)
     if temp_m:
         metrics['temp'] = float(temp_m.group(1))
-    hum_m = _re.search(r"humidity\s+(\d+)%", context, _re.IGNORECASE)
+    hum_m = _re.search(r"humidity\s*[:=]?\s*(\d+)\s*%", context, _re.IGNORECASE)
     if hum_m:
         metrics['humidity'] = float(hum_m.group(1))
-    wind_m = _re.search(r"wind\s+(\d+\.?\d*)\s*m/s", context, _re.IGNORECASE)
+    wind_m = _re.search(r"wind\s*[:=]?\s*(\d+\.?\d*)\s*m/?s", context, _re.IGNORECASE)
     if wind_m:
         metrics['wind'] = float(wind_m.group(1))
-    rain_m = _re.search(r"rain\s+(\d+\.?\d*)\s*mm", context, _re.IGNORECASE)
+    rain_m = _re.search(r"rain\s*[:=]?\s*(\d+\.?\d*)\s*mm", context, _re.IGNORECASE)
     if rain_m:
         metrics['rain'] = float(rain_m.group(1))
     parts: List[str] = []
@@ -370,5 +370,5 @@ def _heuristic_answer(question: str, context: str) -> str:
                     (f"{metrics['rain']:.1f} mm rain" if metrics.get('rain',0)>0 else 'dry') if 'rain' in metrics else None]
             parts = [p for p in base if p]
         else:
-            return "No AI available and insufficient context to answer." 
+            return "Forecast not loaded yet – run a weather check first to enable AI answers." 
     return ", ".join(parts) + ". (AI fallback)"

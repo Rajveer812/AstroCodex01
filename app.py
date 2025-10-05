@@ -363,6 +363,13 @@ if check_weather:
                         'avg_rainfall_mm': hist['avg_rainfall_mm'],
                         'avg_temp_c': hist['avg_temperature_c']
                     }
+                    # Persist metrics for AI chat fallback reuse
+                    st.session_state['latest_weather_metrics'] = {
+                        'temp': weather['avg_temp'],
+                        'humidity': weather['avg_humidity'],
+                        'wind': weather['avg_wind'],
+                        'rain': weather['total_rain']
+                    }
                     result = parade_suitability_score(forecast_input, historical_input)
                     suggestion = get_event_suggestion(forecast_input)
                     render_suitability_card(result['score'], result['message'], suggestion,
@@ -708,6 +715,9 @@ if st.session_state['show_chat']:
             ctx_parts = []
             if 'weather' in locals() and weather:
                 ctx_parts.append(f"Forecast target date metrics: temp {weather['avg_temp']:.1f}C, humidity {weather['avg_humidity']:.0f}%, wind {weather['avg_wind']:.1f} m/s, rain {weather['total_rain']:.1f} mm")
+            elif 'latest_weather_metrics' in st.session_state:
+                m = st.session_state['latest_weather_metrics']
+                ctx_parts.append(f"Cached metrics: temp {m['temp']:.1f}C, humidity {m['humidity']:.0f}%, wind {m['wind']:.1f} m/s, rain {m['rain']:.1f} mm")
             if city:
                 ctx_parts.append(f"Current selected city: {city}")
             context = " | ".join(ctx_parts)
