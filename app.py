@@ -370,7 +370,7 @@ if check_weather:
                     # Simple share/copy container (no editing, minimal JS)
                     forecast_card = f"""
 <style>
-    .forecast-simple-card {{ background:#f0f7ff; border-radius:16px; padding:18px 20px 16px; position:relative; box-shadow:0 2px 6px rgba(0,0,0,0.08); }}
+    .forecast-simple-card {{ background:#f0f7ff; border-radius:16px; padding:18px 20px 16px; position:relative; box-shadow:0 2px 6px rgba(0,0,0,0.08); color:#000; }}
     .forecast-actions {{ position:absolute; top:10px; right:10px; display:flex; gap:8px; }}
     .forecast-btn {{ width:36px; height:36px; border:none; border-radius:50%; background:#4f8cff; color:#fff; font-size:15px; cursor:pointer; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 6px rgba(0,0,0,0.25); }}
     .forecast-btn:hover {{ filter:brightness(1.12); }}
@@ -382,14 +382,14 @@ if check_weather:
          <button id='copyForecast' class='forecast-btn' title='Copy forecast'>📋</button>
          <button id='shareForecast' class='forecast-btn' title='Share forecast'>🔗</button>
     </div>
-    <div style='font-weight:600; font-size:1.05rem; margin-bottom:4px;' title='{html.escape(weather.get('condition_desc',''))}'>Today's Forecast {weather.get('condition_emoji','')} {weather.get('condition','')}</div>
-    <div class='forecast-metrics' style='font-size:0.85rem; line-height:1.5;'>
+    <div style='font-weight:600; font-size:1.05rem; margin-bottom:4px; color:#000;' title='{html.escape(weather.get('condition_desc',''))}'>Today's Forecast {weather.get('condition_emoji','')} {weather.get('condition','')}</div>
+    <div class='forecast-metrics' style='font-size:0.85rem; line-height:1.5; color:#000;'>
          <b>🌡️ Temp:</b> {weather['avg_temp']:.1f}°C &nbsp; | &nbsp;
          <b>💧 Humidity:</b> {weather['avg_humidity']:.0f}% &nbsp; | &nbsp;
          <b>🌬️ Wind:</b> {weather['avg_wind']:.1f} m/s &nbsp; | &nbsp;
          <b>🌧️ Rain:</b> {weather['total_rain']:.1f} mm
     </div>
-    <div class='ai-summary' style='margin-top:10px; font-size:0.85rem; line-height:1.35;'>{html.escape(concise_summary)}</div>
+    <div class='ai-summary' style='margin-top:10px; font-size:0.85rem; line-height:1.35; color:#000;'>{html.escape(concise_summary)}</div>
 </div>
 <script>
 (function(){{
