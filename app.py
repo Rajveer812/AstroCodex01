@@ -17,7 +17,13 @@ from utils.helpers import process_forecast, process_forecast_with_fallback
 from utils.scoring import parade_suitability_score, get_event_suggestion
 from ui.components import show_result
 from ui.sections import render_header, render_inputs, render_suitability_card, render_nasa_section, render_nasa_results, render_pollution_stats
-from services.openai_ai import summarize_weather as oa_summarize, answer_weather_question as oa_answer, is_openai_configured
+from services.openai_ai import (
+    summarize_weather as oa_summarize,
+    answer_weather_question as oa_answer,
+    is_openai_configured,
+    check_openai_health,
+    reset_openai_client,
+)
 from ui.map_panel import render_map_section
 # OpenAI-only helper wrappers
 def ai_summarize(weather_dict):
@@ -136,6 +142,31 @@ if 'chat_messages' not in st.session_state:
 
 # --- UI: Header and Inputs ---
 render_header()
+
+# --- AI Status Bar (top) ---
+with st.container():
+    ai_col1, ai_col2, ai_col3, ai_col4 = st.columns([1.2,1,1,1])
+    with ai_col1:
+        if st.button("🔄 Reset AI Client", help="Clear cached OpenAI client (use after adding key in deployment)"):
+            reset_openai_client()
+            st.experimental_rerun() if hasattr(st, 'experimental_rerun') else st.rerun()
+    with ai_col2:
+        if st.button("✅ Check AI", help="Run a lightweight health check"):
+            st.session_state['last_ai_health'] = check_openai_health()
+    with ai_col3:
+        configured = is_openai_configured()
+        badge_color = '#16a34a' if configured else '#64748b'
+        st.markdown(f"<div style='padding:6px 10px; border-radius:10px; background:{badge_color}; color:#fff; font-size:0.75rem; font-weight:600; text-align:center;'>AI {'READY' if configured else 'OFF'}</div>", unsafe_allow_html=True)
+    with ai_col4:
+        if 'last_ai_health' in st.session_state:
+            info = st.session_state['last_ai_health']
+            if info.get('configured') and info.get('ok'):
+                st.success(f"Model: {info.get('model','?')}", icon="🤖")
+            else:
+                err = info.get('error','not configured')
+                st.warning(err[:160], icon="⚠️")
+        else:
+            st.caption("Use 'Check AI' to view status")
 city, date, check_weather, forecast_placeholder, cols = render_inputs()
 # Remove unnecessary empty white box
 # st.markdown("<div style='margin-top: 2em;'></div>", unsafe_allow_html=True)

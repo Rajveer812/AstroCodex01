@@ -28,6 +28,20 @@ _MODEL_CANDIDATES: List[str] = [
 _MODEL_CANDIDATES = [m for m in _MODEL_CANDIDATES if m]
 _SELECTED_MODEL: Optional[str] = None
 
+def reset_openai_client():  # pragma: no cover - utility for manual reset
+    """Clear cached OpenAI client and selected model.
+
+    Useful on Streamlit Cloud if secrets were added AFTER the process started and
+    the cached _configure() returned None initially. Call this then re-check
+    configuration.
+    """
+    global _SELECTED_MODEL
+    try:
+        _configure.cache_clear()  # type: ignore[attr-defined]
+    except Exception:
+        pass
+    _SELECTED_MODEL = None
+
 @lru_cache(maxsize=1)
 def _configure() -> Optional[OpenAI]:
     if not _HAS_OPENAI:
