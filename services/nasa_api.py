@@ -10,7 +10,7 @@ import requests
 from datetime import datetime, timedelta
 import time
 from functools import lru_cache
-from typing import Optional, Tuple
+from typing import Optional
 
 from config import settings
 
@@ -26,54 +26,9 @@ else:
 
 @lru_cache(maxsize=256)
 def _geocode_city_cached(city_name: str) -> Optional[tuple[float, float]]:
-	"""Internal cached geocoding call (returns None if not found).
-
-	Uses Nominatim first; if it raises a terminal error or returns None,
-	falls back to OpenWeather direct geocoding if OPENWEATHER_API_KEY present.
-	"""
-	# Primary: Nominatim (geopy)
+	"""Internal cached geocoding call (returns None if not found)."""
 	geolocator = Nominatim(user_agent=settings.GEOCODE_USER_AGENT)
-	try:
-		coords = _geocode_with_retries(geolocator, city_name)
-		if coords:
-			return coords
-	except RuntimeError:
-		# Will attempt fallback below
-		pass
-	# Fallback: OpenWeather direct geocoding API (if key present)
-	ow_key = settings.get_openweather_api_key()
-	if not ow_key:
-		return None
-	try:
-		ow_coords = _openweather_geocode(city_name, ow_key)
-		return ow_coords
-	except Exception:
-		return None
-
-
-def _openweather_geocode(city: str, api_key: str) -> Optional[Tuple[float, float]]:
-	"""Call OpenWeather geocoding endpoint as a fallback.
-
-	https://api.openweathermap.org/geo/1.0/direct?q={city}&limit=1&appid=KEY
-	Returns (lat, lon) or None.
-	"""
-	url = "https://api.openweathermap.org/geo/1.0/direct"
-	params = {"q": city, "limit": 1, "appid": api_key}
-	try:
-		r = requests.get(url, params=params, timeout=8)
-		if r.status_code != 200:
-			return None
-		js = r.json()
-		if not js:
-			return None
-		first = js[0]
-		lat = first.get("lat")
-		lon = first.get("lon")
-		if lat is None or lon is None:
-			return None
-		return (lat, lon)
-	except Exception:
-		return None
+	return _geocode_with_retries(geolocator, city_name)
 
 
 def _geocode_with_retries(geolocator, city_name: str) -> Optional[tuple[float, float]]:
@@ -100,31 +55,21 @@ def _geocode_with_retries(geolocator, city_name: str) -> Optional[tuple[float, f
 
 
 def get_city_coordinates(city_name: str) -> tuple[float, float]:
-	"""Return latitude and longitude for a city name with retry + fallback.
-
-	Order:
-	  1. Nominatim (geopy) with retries
-	  2. OpenWeather geo API (if API key configured)
+	"""Return latitude and longitude for a city name using geopy with retries & cache.
 
 	Raises:
-		RuntimeError: If geopy missing entirely.
-		ValueError: If neither provider returns a coordinate.
+		RuntimeError: If geopy missing or repeated failures occur.
+		ValueError: If the city cannot be geocoded.
 	"""
 	if _geopy_import_error or Nominatim is None:  # type: ignore
 		raise RuntimeError(
 			"geopy is required for city geocoding but is not installed. "
 			"Add 'geopy' to requirements.txt and reinstall."
 		)
-	city_clean = city_name.strip()
-	coords = _geocode_city_cached(city_clean)
-	if coords:
-		return coords
-	# Provide richer error message if fallback also failed
-	ow_present = bool(settings.get_openweather_api_key())
-	raise ValueError(
-		f"City '{city_clean}' could not be geocoded via Nominatim" +
-		(" or OpenWeather." if ow_present else ". (OpenWeather fallback not available – missing API key)")
-	)
+	coords = _geocode_city_cached(city_name.strip())
+	if not coords:
+		raise ValueError(f"City '{city_name}' not found or geocoding unavailable.")
+	return coords
 
 
 def fetch_nasa_power_monthly_averages(city_name: str, year: int, month: int) -> dict:

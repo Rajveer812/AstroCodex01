@@ -17,7 +17,7 @@ from utils.helpers import process_forecast, process_forecast_with_fallback
 from utils.scoring import parade_suitability_score, get_event_suggestion
 from ui.components import show_result
 from ui.sections import render_header, render_inputs, render_suitability_card, render_nasa_section, render_nasa_results, render_pollution_stats
-from services.openai_ai import summarize_weather as oa_summarize, answer_weather_question as oa_answer, is_openai_configured, check_openai_health, validate_openai_key
+from services.openai_ai import summarize_weather as oa_summarize, answer_weather_question as oa_answer, is_openai_configured
 from ui.map_panel import render_map_section
 # OpenAI-only helper wrappers
 def ai_summarize(weather_dict):
@@ -29,16 +29,6 @@ def ai_answer(question: str, context: str):
     if is_openai_configured():
         return oa_answer(question, context)
     return '(AI disabled) Configure OPENAI_API_KEY.'
-
-# --- Silent OpenAI warm ping (non-blocking best effort) ---
-try:
-    if 'openai_health' not in st.session_state:
-        h = check_openai_health()
-        st.session_state['openai_health'] = h
-    if 'openai_validation' not in st.session_state:
-        st.session_state['openai_validation'] = validate_openai_key()
-except Exception:
-    pass
 
 # --- Set Page Config ---
 st.set_page_config(
@@ -363,13 +353,6 @@ if check_weather:
                         'avg_rainfall_mm': hist['avg_rainfall_mm'],
                         'avg_temp_c': hist['avg_temperature_c']
                     }
-                    # Persist metrics for AI chat fallback reuse
-                    st.session_state['latest_weather_metrics'] = {
-                        'temp': weather['avg_temp'],
-                        'humidity': weather['avg_humidity'],
-                        'wind': weather['avg_wind'],
-                        'rain': weather['total_rain']
-                    }
                     result = parade_suitability_score(forecast_input, historical_input)
                     suggestion = get_event_suggestion(forecast_input)
                     render_suitability_card(result['score'], result['message'], suggestion,
@@ -387,10 +370,9 @@ if check_weather:
                     # Simple share/copy container (no editing, minimal JS)
                     forecast_card = f"""
 <style>
-    .forecast-simple-card {{ background:#f0f7ff; border-radius:16px; padding:18px 20px 16px; position:relative; box-shadow:0 2px 6px rgba(0,0,0,0.08); color:#000; }}
-    .forecast-simple-card, .forecast-simple-card * {{ color:#000 !important; }}
+    .forecast-simple-card {{ background:#f0f7ff; border-radius:16px; padding:18px 20px 16px; position:relative; box-shadow:0 2px 6px rgba(0,0,0,0.08); }}
     .forecast-actions {{ position:absolute; top:10px; right:10px; display:flex; gap:8px; }}
-    .forecast-btn {{ width:36px; height:36px; border:none; border-radius:50%; background:#4f8cff; color:#fff !important; font-size:15px; cursor:pointer; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 6px rgba(0,0,0,0.25); }}
+    .forecast-btn {{ width:36px; height:36px; border:none; border-radius:50%; background:#4f8cff; color:#fff; font-size:15px; cursor:pointer; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 6px rgba(0,0,0,0.25); }}
     .forecast-btn:hover {{ filter:brightness(1.12); }}
     .forecast-metrics b {{ font-weight:600; }}
     .ai-summary {{ margin-top:8px; font-size:0.9rem; line-height:1.4; }}
@@ -687,21 +669,16 @@ if st.session_state['show_chat']:
     with st.container():
         st.markdown("<div class='chat-panel'>", unsafe_allow_html=True)
         on = is_openai_configured()
-        val = st.session_state.get('openai_validation', {})
-        status_code = val.get('code') if isinstance(val, dict) else None
-        good = on and status_code == 'ok'
-        badge_label = 'AI Ready' if good else ('AI Heuristic' if on else 'AI OFF')
-        badge_color = '#16a34a' if good else ('#f59e0b' if on else '#64748b')
-        badge = f"<span style='background:{badge_color}; color:#fff; padding:2px 8px; border-radius:12px; font-size:0.65rem; font-weight:600;'>{badge_label}</span>"
+        badge = f"<span style='background:{'#16a34a' if on else '#64748b'}; color:#fff; padding:2px 8px; border-radius:12px; font-size:0.65rem; font-weight:600;'>{'AI OpenAI' if on else 'AI OFF'}</span>"
         st.markdown(f"""
-<div class='chat-header'>AI Weather Assistant {badge}
-    <span class='chat-close' onClick=\"window.parent.postMessage({{type:'chat_toggle_py'}},'*')\">✕</span>
-</div>
-<div style='font-size:0.70rem; margin-bottom:4px; color:#475569;'>
-    Ask about current or upcoming weather. Examples:
-    <em>'Rain tomorrow in London?'</em> • <em>'Compare temp Delhi vs Mumbai'</em>
-</div>
-""", unsafe_allow_html=True)
+            <div class='chat-header'>AI Weather Assistant {badge}
+                <span class='chat-close' onClick=\"window.parent.postMessage({{type:'chat_toggle_py'}},'*')\">✕</span>
+            </div>
+            <div style='font-size:0.70rem; margin-bottom:4px; color:#475569;'>
+                Ask about current or upcoming weather. Examples:
+                <em>'Rain tomorrow in London?'</em> • <em>'Compare temp Delhi vs Mumbai'</em>
+            </div>
+            """, unsafe_allow_html=True)
         if not on:
             st.warning("OpenAI not configured. Add OPENAI_API_KEY to .streamlit/secrets.toml")
         # Messages
@@ -715,9 +692,6 @@ if st.session_state['show_chat']:
             ctx_parts = []
             if 'weather' in locals() and weather:
                 ctx_parts.append(f"Forecast target date metrics: temp {weather['avg_temp']:.1f}C, humidity {weather['avg_humidity']:.0f}%, wind {weather['avg_wind']:.1f} m/s, rain {weather['total_rain']:.1f} mm")
-            elif 'latest_weather_metrics' in st.session_state:
-                m = st.session_state['latest_weather_metrics']
-                ctx_parts.append(f"Cached metrics: temp {m['temp']:.1f}C, humidity {m['humidity']:.0f}%, wind {m['wind']:.1f} m/s, rain {m['rain']:.1f} mm")
             if city:
                 ctx_parts.append(f"Current selected city: {city}")
             context = " | ".join(ctx_parts)
