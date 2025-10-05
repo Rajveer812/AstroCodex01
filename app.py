@@ -17,7 +17,7 @@ from utils.helpers import process_forecast, process_forecast_with_fallback
 from utils.scoring import parade_suitability_score, get_event_suggestion
 from ui.components import show_result
 from ui.sections import render_header, render_inputs, render_suitability_card, render_nasa_section, render_nasa_results, render_pollution_stats
-from services.openai_ai import summarize_weather as oa_summarize, answer_weather_question as oa_answer, is_openai_configured
+from services.openai_ai import summarize_weather as oa_summarize, answer_weather_question as oa_answer, is_openai_configured, check_openai_health
 from ui.map_panel import render_map_section
 # OpenAI-only helper wrappers
 def ai_summarize(weather_dict):
@@ -137,6 +137,15 @@ if 'chat_messages' not in st.session_state:
 # --- UI: Header and Inputs ---
 render_header()
 city, date, check_weather, forecast_placeholder, cols = render_inputs()
+# --- Diagnostics (Optional) ---
+with st.sidebar.expander("🔧 AI Diagnostics", expanded=False):
+    try:
+        health = check_openai_health()
+        st.write({k: v for k, v in health.items()})
+        if health.get('configured') and not health.get('ok'):
+            st.info("OpenAI key detected but call failed. If you just rotated the key, wait 10s and click Rerun.")
+    except Exception as _diag_e:
+        st.write("Diag error", str(_diag_e)[:120])
 # Remove unnecessary empty white box
 # st.markdown("<div style='margin-top: 2em;'></div>", unsafe_allow_html=True)
 
