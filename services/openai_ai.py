@@ -5,7 +5,7 @@ Reads OPENAI_API_KEY from st.secrets then environment. Safe fallbacks if not con
 """
 from __future__ import annotations
 import os
-from functools import lru_cache
+from functools import lru_cache  # retained for other potential use
 import re
 from typing import Dict, Optional, Tuple, List
 
@@ -29,10 +29,18 @@ _MODEL_CANDIDATES: List[str] = [
 _MODEL_CANDIDATES = [m for m in _MODEL_CANDIDATES if m]
 _SELECTED_MODEL: Optional[str] = None
 
-@lru_cache(maxsize=1)
+_OPENAI_CLIENT_CACHE: dict[str, tuple[OpenAI, float, str]] = {}
+_OPENAI_CACHE_TTL = 300.0  # seconds
+
 def _configure() -> Optional[OpenAI]:
+    """Return (and cache briefly) an OpenAI client using the current key.
+
+    We avoid lru_cache so updates to secrets propagate without app restart.
+    A lightweight TTL cache reduces repeated client construction.
+    """
     if not _HAS_OPENAI:
         return None
+    # Pull current key
     key = None
     try:
         key = st.secrets.get("OPENAI_API_KEY")  # type: ignore[attr-defined]
@@ -42,9 +50,8 @@ def _configure() -> Optional[OpenAI]:
         key = os.getenv("OPENAI_API_KEY")
     if not key:
         return None
-    # Detect obvious placeholder patterns
+    # Placeholder detection
     if key.startswith("REPLACE_") or key.startswith("YOUR_") or "REPLACE_WITH" in key:
-        # Store a helpful error in session logs
         try:
             logs = st.session_state.get('ai_logs', [])
             logs.append('Placeholder OpenAI API key detected. Provide a real key from https://platform.openai.com/account/api-keys')
@@ -52,8 +59,18 @@ def _configure() -> Optional[OpenAI]:
         except Exception:
             pass
         return None
+    # Check TTL cache
+    import time
+    now = time.time()
+    cached = _OPENAI_CLIENT_CACHE.get('client')
+    if cached:
+        client_obj, ts, cached_key = cached
+        if now - ts < _OPENAI_CACHE_TTL and cached_key == key:
+            return client_obj
+    # Build / rebuild client
     try:
         client = OpenAI(api_key=key)
+        _OPENAI_CLIENT_CACHE['client'] = (client, now, key)
         return client
     except Exception:
         return None
