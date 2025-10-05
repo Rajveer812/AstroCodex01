@@ -17,7 +17,7 @@ from utils.helpers import process_forecast, process_forecast_with_fallback
 from utils.scoring import parade_suitability_score, get_event_suggestion
 from ui.components import show_result
 from ui.sections import render_header, render_inputs, render_suitability_card, render_nasa_section, render_nasa_results, render_pollution_stats
-from services.openai_ai import summarize_weather as oa_summarize, answer_weather_question as oa_answer, is_openai_configured, check_openai_health
+from services.openai_ai import summarize_weather as oa_summarize, answer_weather_question as oa_answer, is_openai_configured, check_openai_health, validate_openai_key
 from ui.map_panel import render_map_section
 # OpenAI-only helper wrappers
 def ai_summarize(weather_dict):
@@ -35,6 +35,8 @@ try:
     if 'openai_health' not in st.session_state:
         h = check_openai_health()
         st.session_state['openai_health'] = h
+    if 'openai_validation' not in st.session_state:
+        st.session_state['openai_validation'] = validate_openai_key()
 except Exception:
     pass
 
@@ -678,16 +680,21 @@ if st.session_state['show_chat']:
     with st.container():
         st.markdown("<div class='chat-panel'>", unsafe_allow_html=True)
         on = is_openai_configured()
-        badge = f"<span style='background:{'#16a34a' if on else '#64748b'}; color:#fff; padding:2px 8px; border-radius:12px; font-size:0.65rem; font-weight:600;'>{'AI OpenAI' if on else 'AI OFF'}</span>"
+        val = st.session_state.get('openai_validation', {})
+        status_code = val.get('code') if isinstance(val, dict) else None
+        good = on and status_code == 'ok'
+        badge_label = 'AI Ready' if good else ('AI Heuristic' if on else 'AI OFF')
+        badge_color = '#16a34a' if good else ('#f59e0b' if on else '#64748b')
+        badge = f"<span style='background:{badge_color}; color:#fff; padding:2px 8px; border-radius:12px; font-size:0.65rem; font-weight:600;'>{badge_label}</span>"
         st.markdown(f"""
-            <div class='chat-header'>AI Weather Assistant {badge}
-                <span class='chat-close' onClick=\"window.parent.postMessage({{type:'chat_toggle_py'}},'*')\">✕</span>
-            </div>
-            <div style='font-size:0.70rem; margin-bottom:4px; color:#475569;'>
-                Ask about current or upcoming weather. Examples:
-                <em>'Rain tomorrow in London?'</em> • <em>'Compare temp Delhi vs Mumbai'</em>
-            </div>
-            """, unsafe_allow_html=True)
+<div class='chat-header'>AI Weather Assistant {badge}
+    <span class='chat-close' onClick=\"window.parent.postMessage({{type:'chat_toggle_py'}},'*')\">✕</span>
+</div>
+<div style='font-size:0.70rem; margin-bottom:4px; color:#475569;'>
+    Ask about current or upcoming weather. Examples:
+    <em>'Rain tomorrow in London?'</em> • <em>'Compare temp Delhi vs Mumbai'</em>
+</div>
+""", unsafe_allow_html=True)
         if not on:
             st.warning("OpenAI not configured. Add OPENAI_API_KEY to .streamlit/secrets.toml")
         # Messages

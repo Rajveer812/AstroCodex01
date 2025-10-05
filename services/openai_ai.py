@@ -9,6 +9,13 @@ from functools import lru_cache  # retained for other potential use
 import re
 from typing import Dict, Optional, Tuple, List
 
+# Optional Gemini fallback (import lazily to avoid hard dependency if absent)
+try:
+    from services import gemini_ai  # type: ignore
+    _HAS_GEMINI = True
+except Exception:  # pragma: no cover
+    _HAS_GEMINI = False
+
 import streamlit as st
 
 try:  # Lazy import guard
@@ -205,6 +212,12 @@ def _fallback_summary(weather: Dict[str, float]) -> str:
 def summarize_weather(weather: Dict[str, float]) -> str:
     client = _configure()
     if not client:
+        # Try Gemini fallback if available
+        if _HAS_GEMINI and gemini_ai.is_gemini_configured():  # type: ignore[attr-defined]
+            try:
+                return gemini_ai.summarize_weather(weather)  # type: ignore[attr-defined]
+            except Exception:
+                pass
         return _fallback_summary(weather)
     temp = weather.get("temp") or weather.get("T2M")
     wind = weather.get("wind") or weather.get("WS2M")
@@ -230,18 +243,26 @@ def summarize_weather(weather: Dict[str, float]) -> str:
     )
     text, err = _chat(client, [{"role": "user", "content": prompt}], temperature=0.6, max_tokens=120)
     if err:
-        if err == 'invalid_api_key':
-            return _fallback_summary(weather) + " (AI key invalid)"
-        if err in {'model_not_found','rate_limited','timeout','org_scope','project_scope','network'}:
-            return _fallback_summary(weather) + f" (AI {err.replace('_',' ')})"
-        return _fallback_summary(weather) + " (AI error)"
+        # On any error: degrade to heuristic or Gemini
+        if _HAS_GEMINI and gemini_ai.is_gemini_configured():  # type: ignore[attr-defined]
+            try:
+                gtxt = gemini_ai.summarize_weather(weather)  # type: ignore[attr-defined]
+                return gtxt + ""  # already user-friendly
+            except Exception:
+                pass
+        return _fallback_summary(weather)
     return text or "No summary generated"
 
 
 def answer_weather_question(question: str, context: str = "") -> str:
     client = _configure()
     if not client:
-        return "(Local heuristic) AI disabled – add OPENAI_API_KEY for full answers."
+        if _HAS_GEMINI and gemini_ai.is_gemini_configured():  # type: ignore[attr-defined]
+            try:
+                return gemini_ai.answer_weather_question(question, context)  # type: ignore[attr-defined]
+            except Exception:
+                pass
+        return "(Heuristic) Provide OPENAI_API_KEY for richer answers."
     base = (
         "You are a concise helpful weather assistant. Use only the factual data provided in context if present. "
         "If user asks for a forecast beyond available range (5 days) politely explain the limit."
@@ -249,11 +270,12 @@ def answer_weather_question(question: str, context: str = "") -> str:
     prompt = f"{base}\nContext:\n{context}\n\nUser question: {question}\nAnswer:"
     text, err = _chat(client, [{"role": "user", "content": prompt}], temperature=0.5, max_tokens=400)
     if err:
-        if err == 'invalid_api_key':
-            return "(Heuristic) Cannot answer – API key invalid."
-        if err in {'model_not_found','rate_limited','timeout','org_scope','project_scope','network'}:
-            return f"(Heuristic) AI unavailable ({err.replace('_',' ')}) – try later."
-        return "(Heuristic) AI error encountered."
+        if _HAS_GEMINI and gemini_ai.is_gemini_configured():  # type: ignore[attr-defined]
+            try:
+                return gemini_ai.answer_weather_question(question, context)  # type: ignore[attr-defined]
+            except Exception:
+                pass
+        return "(Heuristic) AI unavailable."
     return text or "No answer generated"
 
 
@@ -272,3 +294,24 @@ _KEY_PATTERN = re.compile(r"sk-[a-zA-Z0-9_-]{8,}")
 def _redact_keys(message: str) -> str:
     """Redact any OpenAI-style keys from an error message to avoid leaking them in UI/logs."""
     return _KEY_PATTERN.sub("sk-***redacted***", message)
+
+
+def validate_openai_key() -> Dict[str, Optional[str]]:
+    """Proactively validate the configured OpenAI key with a 1-token style request.
+
+    Returns dict with fields:
+      configured: bool
+      ok: bool
+      code: short code (e.g., invalid_api_key, model_not_found, network, timeout)
+      model: model attempted
+      error: raw/redacted error string (optional)
+    """
+    client = _configure()
+    if not client:
+        return {"configured": False, "ok": False, "code": "missing", "model": None, "error": None}
+    # Use a deterministic tiny prompt.
+    text, err = _chat(client, [{"role": "user", "content": "Return OK"}], temperature=0, max_tokens=5)
+    if err:
+        code = err if err in {"invalid_api_key","model_not_found","rate_limited","timeout","org_scope","project_scope","network"} else "other"
+        return {"configured": True, "ok": False, "code": code, "model": _SELECTED_MODEL, "error": err}
+    return {"configured": True, "ok": True, "code": "ok", "model": _SELECTED_MODEL, "error": None}
