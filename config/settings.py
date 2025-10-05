@@ -42,12 +42,21 @@ def _get_secret(name: str) -> Optional[str]:
 
 # Public accessor functions (prefer functions over module-level constants for secrets)
 def get_openweather_api_key() -> Optional[str]:
-	return _get_secret("OPENWEATHER_API_KEY")
+	# Support multiple possible variable names for flexibility / legacy
+	for candidate in [
+		"OPENWEATHER_API_KEY",
+		"OPENWEATHERMAP_API_KEY",
+		"OWM_API_KEY",
+	]:
+		val = _get_secret(candidate)
+		if val:
+			return val
+	return None
 
 
 # Non-secret static endpoints
-BASE_URL = "http://api.openweathermap.org/data/2.5/forecast"
-POLLUTION_BASE_URL = "http://api.openweathermap.org/data/2.5/air_pollution"
+BASE_URL = "https://api.openweathermap.org/data/2.5/forecast"
+POLLUTION_BASE_URL = "https://api.openweathermap.org/data/2.5/air_pollution"
 
 # Geocoding / Nominatim settings
 # Increase timeout to reduce ReadTimeouts; keep retries modest to respect usage policy.

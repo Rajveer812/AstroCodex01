@@ -11,20 +11,13 @@ import html
 import textwrap
 # Third-party and local imports
 from services.nasa_api import fetch_nasa_power_monthly_averages
-from services.weather_api import get_forecast
+from services.weather_api import get_forecast, get_forecast_diagnostic
 from services.pollution_api import get_pollution_stats
 from utils.helpers import process_forecast, process_forecast_with_fallback
 from utils.scoring import parade_suitability_score, get_event_suggestion
 from ui.components import show_result
 from ui.sections import render_header, render_inputs, render_suitability_card, render_nasa_section, render_nasa_results, render_pollution_stats
-from services.openai_ai import (
-    summarize_weather as oa_summarize,
-    answer_weather_question as oa_answer,
-    is_openai_configured,
-    check_openai_health,
-    reset_openai_client,
-    openai_diagnostics,
-)
+from services.openai_ai import summarize_weather as oa_summarize, answer_weather_question as oa_answer, is_openai_configured
 from ui.map_panel import render_map_section
 # OpenAI-only helper wrappers
 def ai_summarize(weather_dict):
@@ -143,44 +136,6 @@ if 'chat_messages' not in st.session_state:
 
 # --- UI: Header and Inputs ---
 render_header()
-
-# --- AI Status Bar (top) ---
-with st.container():
-    ai_col1, ai_col2, ai_col3, ai_col4, ai_col5 = st.columns([1.2,1,1,1,1.2])
-    with ai_col1:
-        if st.button("🔄 Reset AI Client", help="Clear cached OpenAI client (use after adding key in deployment)"):
-            reset_openai_client()
-            st.experimental_rerun() if hasattr(st, 'experimental_rerun') else st.rerun()
-    with ai_col2:
-        if st.button("✅ Check AI", help="Run a lightweight health check"):
-            st.session_state['last_ai_health'] = check_openai_health()
-    with ai_col3:
-        configured = is_openai_configured()
-        badge_color = '#16a34a' if configured else '#64748b'
-        st.markdown(f"<div style='padding:6px 10px; border-radius:10px; background:{badge_color}; color:#fff; font-size:0.75rem; font-weight:600; text-align:center;'>AI {'READY' if configured else 'OFF'}</div>", unsafe_allow_html=True)
-    with ai_col4:
-        if 'last_ai_health' in st.session_state:
-            info = st.session_state['last_ai_health']
-            if info.get('configured') and info.get('ok'):
-                st.success(f"Model: {info.get('model','?')}", icon="🤖")
-            else:
-                err = info.get('error','not configured')
-                st.warning(err[:160], icon="⚠️")
-        else:
-            st.caption("Use 'Check AI' to view status")
-    with ai_col5:
-        if st.button("🛠 Diagnostics", help="Show detailed OpenAI diagnostics"):
-            st.session_state['openai_diag'] = openai_diagnostics()
-        if 'openai_diag' in st.session_state:
-            diag = st.session_state['openai_diag']
-            st.markdown(
-                f"<div style='font-size:0.6rem; line-height:1.15; background:#f1f5f9; padding:6px 8px; border-radius:8px;'>"
-                f"legacy={diag.get('legacy_mode')} configured={diag.get('configured')} ok={diag.get('ok')}<br>"
-                f"env_key={diag.get('env_has_key')} secrets_key={diag.get('secrets_has_key')}<br>"
-                f"model={diag.get('model','?')} error={(diag.get('error') or '')[:70]}" 
-                f"</div>",
-                unsafe_allow_html=True
-            )
 city, date, check_weather, forecast_placeholder, cols = render_inputs()
 # Remove unnecessary empty white box
 # st.markdown("<div style='margin-top: 2em;'></div>", unsafe_allow_html=True)
@@ -332,13 +287,26 @@ if check_weather:
     if not city:
         st.error("⚠️ Please enter a city name")
     else:
+        data = None
         try:
-            data = get_forecast(city)
+            data, diag_err = get_forecast_diagnostic(city)
         except Exception as e:
-            st.error(f"Weather API error: {e}")
-            data = None
+            diag_err = f"exception:{e}"
         if not data:
-            st.error("❌ Failed to fetch data. Check city name or API key.")
+            # Tailored messaging
+            if diag_err == "missing_key":
+                st.error("🔑 OpenWeather API key not configured. Add OPENWEATHER_API_KEY in secrets.toml or env.")
+            elif diag_err == "unauthorized":
+                st.error("🚫 Invalid API key (401). Rotate key and update secrets.")
+            elif diag_err == "city_not_found":
+                st.error("🏙️ City not found. Check spelling or try a different location.")
+            elif diag_err and str(diag_err).startswith("http_error:"):
+                code = diag_err.split(":",1)[1]
+                st.error(f"❌ OpenWeather HTTP error {code}. Possibly temporary; retry later.")
+            elif diag_err and str(diag_err).startswith("network:"):
+                st.error(f"🌐 Network/timeout error contacting OpenWeather: {diag_err.split(':',1)[1]}")
+            else:
+                st.error("❌ Failed to fetch data (unknown cause). Check city name or API key.")
         else:
             target_date = date.strftime("%Y-%m-%d")
             try:
