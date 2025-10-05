@@ -97,7 +97,10 @@ def _chat(client, messages, temperature: float, max_tokens: int) -> Tuple[Option
 def summarize_weather(weather: Dict[str, float]) -> str:
     client = _configure()
     if not client:
-        return "OpenAI not configured (add OPENAI_API_KEY)."
+        return (
+            "OpenAI not configured. Add OPENAI_API_KEY to .streamlit/secrets.toml or set the environment variable. "
+            "See README section 'AI Configuration'."
+        )
     temp = weather.get("temp") or weather.get("T2M")
     wind = weather.get("wind") or weather.get("WS2M")
     humidity = weather.get("humidity") or weather.get("RH2M")
@@ -129,7 +132,10 @@ def summarize_weather(weather: Dict[str, float]) -> str:
 def answer_weather_question(question: str, context: str = "") -> str:
     client = _configure()
     if not client:
-        return "(AI disabled) Configure OPENAI_API_KEY in .streamlit/secrets.toml or env."
+        return (
+            "(AI disabled) Provide OPENAI_API_KEY in .streamlit/secrets.toml or as an environment variable. "
+            "See README for instructions."
+        )
     base = (
         "You are a concise helpful weather assistant. Use only the factual data provided in context if present. "
         "If user asks for a forecast beyond available range (5 days) politely explain the limit."

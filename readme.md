@@ -46,22 +46,42 @@ will-it-rain/
    ```bash
    git clone https://github.com/YOUR_USERNAME/will-it-rain.git
    cd will-it-rain
-Install dependencies:
+   ```
+2. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. Configure APIs:
+   - OpenWeatherMap: edit `config/settings.py` and set `API_KEY`.
+   - (Optional) OpenAI: copy `.streamlit/secrets.example.toml` to `.streamlit/secrets.toml` and add `OPENAI_API_KEY = "sk-..."`.
+   - (Optional) Override model: add `OPENAI_MODEL = "gpt-4o-mini"` to secrets.
+4. Run the app:
+   ```bash
+   streamlit run app.py
+   ```
+5. Open browser (Streamlit will print a local URL).
 
-bash
-Copy code
-pip install -r requirements.txt
-Add your API key:
+## 🤖 AI Configuration
+AI features (summary, Q&A) are disabled until an OpenAI key is provided.
 
-Open config/settings.py
+Methods to configure:
+- Preferred: `.streamlit/secrets.toml`
+- Alternative: environment variable `OPENAI_API_KEY` (export before running)
 
-Replace "YOUR_OPENWEATHERMAP_API_KEY" with your actual key.
+Example secrets file:
+```toml
+OPENAI_API_KEY = "sk-your_real_key"
+# Optional
+# OPENAI_MODEL = "gpt-4o-mini"
+```
 
-Run the app:
+If AI not configured you will see messages like:
+`OpenAI not configured. Add OPENAI_API_KEY to .streamlit/secrets.toml ...`
 
-bash
-Copy code
-streamlit run app.py
+Troubleshooting:
+- Placeholder key (starts with REPLACE_/YOUR_) is ignored.
+- Ensure no surrounding quotes beyond TOML syntax.
+- Restart Streamlit after adding secrets.
 🌍 Demo
 (When deployed, add Streamlit Cloud link here)
 
