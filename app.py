@@ -42,10 +42,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Optional Gemini diagnostics
-with st.sidebar.expander("🔍 AI Diagnostics (Gemini)", expanded=False):
-    g_health = check_gemini_health()
-    st.write(g_health)
+## (AI diagnostics sidebar removed per user request)
 
 # --- Custom CSS for better UI ---
 st.markdown("""
@@ -699,13 +696,48 @@ if st.session_state['show_chat']:
             submitted = st.form_submit_button("Send")
         if submitted and user_q.strip():
             st.session_state['chat_messages'].append({'role':'user','text': user_q.strip()})
-            ctx_parts = []
-            if 'weather' in locals() and weather:
-                ctx_parts.append(f"Forecast target date metrics: temp {weather['avg_temp']:.1f}C, humidity {weather['avg_humidity']:.0f}%, wind {weather['avg_wind']:.1f} m/s, rain {weather['total_rain']:.1f} mm")
+            # Build richer dynamic context
+            ctx_lines = []
             if city:
-                ctx_parts.append(f"Current selected city: {city}")
-            context = " | ".join(ctx_parts)
-            answer = ai_answer(user_q.strip(), context=context)
+                ctx_lines.append(f"city={city}")
+            # Current selected day weather summary
+            if 'weather' in locals() and weather:
+                ctx_lines.append(
+                    f"today(temp={weather['avg_temp']:.1f}C, humidity={weather['avg_humidity']:.0f}%, wind={weather['avg_wind']:.1f}m/s, rain={weather['total_rain']:.1f}mm)"
+                )
+            # Attempt to derive tomorrow date metrics from loaded forecast data if present
+            tomorrow_line = None
+            try:
+                if 'data' in locals() and data and 'list' in data and city:
+                    import datetime as _dt
+                    tomorrow = (datetime.date.today() + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+                    # Collect 3h slices for tomorrow
+                    t_entries = [e for e in data['list'] if e['dt_txt'].startswith(tomorrow)]
+                    if t_entries:
+                        temps = [e['main']['temp'] for e in t_entries]
+                        hums = [e['main']['humidity'] for e in t_entries]
+                        winds = [e['wind']['speed'] for e in t_entries]
+                        rains = []
+                        for e in t_entries:
+                            if 'rain' in e and isinstance(e['rain'], dict):
+                                rains.append(e['rain'].get('3h', 0.0))
+                        total_rain = sum(rains) if rains else 0.0
+                        tomorrow_line = (
+                            f"tomorrow(date={tomorrow}, temp_avg={sum(temps)/len(temps):.1f}C, humidity_avg={sum(hums)/len(hums):.0f}%, "
+                            f"wind_avg={sum(winds)/len(winds):.1f}m/s, rain_total={total_rain:.1f}mm)"
+                        )
+            except Exception:
+                pass
+            if tomorrow_line:
+                ctx_lines.append(tomorrow_line)
+            context = "\n".join(ctx_lines)
+            # Augment user question with explicit instruction for factual answers only
+            full_q = (
+                "Answer using ONLY provided context metrics (today/tomorrow). "
+                "If asked about rain tomorrow and no tomorrow metrics given, say data is unavailable. "
+                + user_q.strip()
+            )
+            answer = ai_answer(full_q, context=context)
             st.session_state['chat_messages'].append({'role':'bot','text': answer})
             try:
                 st.rerun()
