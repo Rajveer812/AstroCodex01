@@ -696,39 +696,15 @@ if st.session_state['show_chat']:
             submitted = st.form_submit_button("Send")
         if submitted and user_q.strip():
             st.session_state['chat_messages'].append({'role':'user','text': user_q.strip()})
-            # Build richer dynamic context
-            ctx_lines = []
-            if city:
-                ctx_lines.append(f"city={city}")
-            # Current selected day weather summary
-            if 'weather' in locals() and weather:
-                ctx_lines.append(
-                    f"today(temp={weather['avg_temp']:.1f}C, humidity={weather['avg_humidity']:.0f}%, wind={weather['avg_wind']:.1f}m/s, rain={weather['total_rain']:.1f}mm)"
-                )
-            # Timezone-aware tomorrow aggregation
-            tomorrow_line = None
-            try:
-                from utils.helpers import aggregate_daily_by_timezone
-                if 'data' in locals() and data:
-                    agg = aggregate_daily_by_timezone(data, day_offset=1)
-                    if agg:
-                        tomorrow_line = (
-                            f"tomorrow(date={agg['date']}, temp_avg={agg['avg_temp']:.1f}C, "
-                            f"humidity_avg={agg['avg_humidity']:.0f}%, wind_avg={agg['avg_wind']:.1f}m/s, "
-                            f"rain_total={agg['total_rain']:.1f}mm)"
-                        )
-            except Exception:
-                tomorrow_line = None
-            if tomorrow_line:
-                ctx_lines.append(tomorrow_line)
-            context = "\n".join(ctx_lines)
-            # Augment user question with explicit instruction for factual answers only
-            full_q = (
-                "Answer using ONLY provided context metrics (today/tomorrow). "
-                "If asked about rain tomorrow and no tomorrow metrics given, say data is unavailable. "
-                + user_q.strip()
+            from services.ai_context import build_ai_weather_context, build_instruction
+            context_json = build_ai_weather_context(
+                city=city or "",
+                forecast_data=data if 'data' in locals() else None,
+                target_used_date=used_date if 'used_date' in locals() else None,
+                future_days=2,
             )
-            answer = ai_answer(full_q, context=context)
+            instruction = build_instruction(user_q.strip())
+            answer = ai_answer(instruction, context=context_json)
             st.session_state['chat_messages'].append({'role':'bot','text': answer})
             try:
                 st.rerun()
