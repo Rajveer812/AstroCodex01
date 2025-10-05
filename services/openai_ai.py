@@ -40,14 +40,16 @@ def _configure() -> Optional[OpenAI]:
     """
     if not _HAS_OPENAI:
         return None
-    # Pull current key
+    # Pull current key (strip whitespace)
     key = None
     try:
-        key = st.secrets.get("OPENAI_API_KEY")  # type: ignore[attr-defined]
+        raw = st.secrets.get("OPENAI_API_KEY")  # type: ignore[attr-defined]
+        key = raw.strip() if isinstance(raw, str) else raw
     except Exception:
         key = None
     if not key:
-        key = os.getenv("OPENAI_API_KEY")
+        env_raw = os.getenv("OPENAI_API_KEY")
+        key = env_raw.strip() if env_raw else None
     if not key:
         return None
     # Placeholder detection
@@ -59,6 +61,36 @@ def _configure() -> Optional[OpenAI]:
         except Exception:
             pass
         return None
+    # Optionally pick up org/project (if provided)
+    org = None
+    project = None
+    for cand in ("OPENAI_ORG", "OPENAI_ORGANIZATION"):
+        v = st.secrets.get(cand) if hasattr(st, 'secrets') and cand in st.secrets else os.getenv(cand)  # type: ignore[attr-defined]
+        if v:
+            org = v.strip()
+            break
+    for cand in ("OPENAI_PROJECT", "OPENAI_PROJ"):
+        v = st.secrets.get(cand) if hasattr(st, 'secrets') and cand in st.secrets else os.getenv(cand)  # type: ignore[attr-defined]
+        if v:
+            project = v.strip()
+            break
+
+    # Warn on project-scoped key if no org/project provided
+    if key.startswith("sk-proj-") and not (org or project):
+        try:
+            logs = st.session_state.get('ai_logs', [])
+            logs.append('Project-scoped key detected without OPENAI_ORG/OPENAI_PROJECT; API may reject calls.')
+            st.session_state['ai_logs'] = logs[-50:]
+        except Exception:
+            pass
+
+    # Fingerprint for diagnostics (not printed here, only stored)
+    try:
+        fp = f"{key[:5]}...{key[-4:]}"
+        st.session_state['openai_key_fingerprint'] = fp
+    except Exception:
+        pass
+
     # Check TTL cache
     import time
     now = time.time()
@@ -69,7 +101,13 @@ def _configure() -> Optional[OpenAI]:
             return client_obj
     # Build / rebuild client
     try:
-        client = OpenAI(api_key=key)
+        params = {"api_key": key}
+        if org:
+            params["organization"] = org
+        if project:
+            # openai python may support project via 'project' kw; if not, it's ignored
+            params["project"] = project  # type: ignore
+        client = OpenAI(**params)  # type: ignore[arg-type]
         _OPENAI_CLIENT_CACHE['client'] = (client, now, key)
         return client
     except Exception:
