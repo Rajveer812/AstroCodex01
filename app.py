@@ -370,9 +370,10 @@ if check_weather:
                     # Simple share/copy container (no editing, minimal JS)
                     forecast_card = f"""
 <style>
-    .forecast-simple-card {{ background:#f0f7ff; border-radius:16px; padding:18px 20px 16px; position:relative; box-shadow:0 2px 6px rgba(0,0,0,0.08); }}
+    .forecast-simple-card {{ background:#f0f7ff; border-radius:16px; padding:18px 20px 16px; position:relative; box-shadow:0 2px 6px rgba(0,0,0,0.08); color:#000; }}
+    .forecast-simple-card, .forecast-simple-card * {{ color:#000 !important; }}
     .forecast-actions {{ position:absolute; top:10px; right:10px; display:flex; gap:8px; }}
-    .forecast-btn {{ width:36px; height:36px; border:none; border-radius:50%; background:#4f8cff; color:#fff; font-size:15px; cursor:pointer; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 6px rgba(0,0,0,0.25); }}
+    .forecast-btn {{ width:36px; height:36px; border:none; border-radius:50%; background:#4f8cff; color:#fff !important; font-size:15px; cursor:pointer; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 6px rgba(0,0,0,0.25); }}
     .forecast-btn:hover {{ filter:brightness(1.12); }}
     .forecast-metrics b {{ font-weight:600; }}
     .ai-summary {{ margin-top:8px; font-size:0.9rem; line-height:1.4; }}
