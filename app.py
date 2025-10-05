@@ -17,7 +17,7 @@ from utils.helpers import process_forecast, process_forecast_with_fallback
 from utils.scoring import parade_suitability_score, get_event_suggestion
 from ui.components import show_result
 from ui.sections import render_header, render_inputs, render_suitability_card, render_nasa_section, render_nasa_results, render_pollution_stats
-from services.openai_ai import summarize_weather as oa_summarize, answer_weather_question as oa_answer, is_openai_configured
+from services.openai_ai import summarize_weather as oa_summarize, answer_weather_question as oa_answer, is_openai_configured, check_openai_health
 from ui.map_panel import render_map_section
 # OpenAI-only helper wrappers
 def ai_summarize(weather_dict):
@@ -29,6 +29,14 @@ def ai_answer(question: str, context: str):
     if is_openai_configured():
         return oa_answer(question, context)
     return '(AI disabled) Configure OPENAI_API_KEY.'
+
+# --- Silent OpenAI warm ping (non-blocking best effort) ---
+try:
+    if 'openai_health' not in st.session_state:
+        h = check_openai_health()
+        st.session_state['openai_health'] = h
+except Exception:
+    pass
 
 # --- Set Page Config ---
 st.set_page_config(

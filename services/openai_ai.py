@@ -17,16 +17,35 @@ try:  # Lazy import guard
 except Exception:  # pragma: no cover
     _HAS_OPENAI = False
 
-_MODEL_CANDIDATES: List[str] = [
-    os.getenv("OPENAI_MODEL"),  # explicit override if provided
-    "gpt-4o-mini",
-    "gpt-4o",
-    "gpt-4o-2024-08-06",
-    "gpt-4.1-mini",
-    "gpt-4.1",
-    "gpt-3.5-turbo"  # legacy fallback
-]
-_MODEL_CANDIDATES = [m for m in _MODEL_CANDIDATES if m]
+def _load_model_candidates() -> List[str]:
+    explicit = None
+    try:
+        explicit = st.secrets.get("OPENAI_MODEL")  # type: ignore[attr-defined]
+    except Exception:
+        pass
+    if not explicit:
+        explicit = os.getenv("OPENAI_MODEL")
+    ordered: List[str] = []
+    if explicit:
+        ordered.append(str(explicit).strip())
+    ordered.extend([
+        "gpt-4o-mini",
+        "gpt-4o",
+        "gpt-4o-2024-08-06",
+        "gpt-4.1-mini",
+        "gpt-4.1",
+        "gpt-3.5-turbo"
+    ])
+    # de-dup preserving order
+    seen = set()
+    uniq: List[str] = []
+    for m in ordered:
+        if m and m not in seen:
+            seen.add(m)
+            uniq.append(m)
+    return uniq
+
+_MODEL_CANDIDATES: List[str] = _load_model_candidates()
 _SELECTED_MODEL: Optional[str] = None
 
 _OPENAI_CLIENT_CACHE: dict[str, tuple[OpenAI, float, str]] = {}
@@ -138,18 +157,28 @@ def _chat(client, messages, temperature: float, max_tokens: int) -> Tuple[Option
             _SELECTED_MODEL = model
             return (resp.choices[0].message.content or "").strip(), None
         except Exception as e:  # pragma: no cover
-            # Redact any API key fragments from the error string
             raw = f"{model}: {e.__class__.__name__}: {e}"
             redacted = _redact_keys(raw)
-            # Map common invalid key indicators to a short code
-            if 'invalid_api_key' in raw.lower() or 'incorrect api key' in raw.lower():
+            lower = raw.lower()
+            if 'invalid_api_key' in lower or 'incorrect api key' in lower or 'unauthorized' in lower:
                 last_err = 'invalid_api_key'
+            elif 'model_not_found' in lower or 'no such model' in lower or 'does not exist' in lower:
+                last_err = 'model_not_found'
+            elif 'rate limit' in lower or 'capacity' in lower or 'overloaded' in lower:
+                last_err = 'rate_limited'
+            elif 'timeout' in lower or 'timed out' in lower:
+                last_err = 'timeout'
+            elif 'organization' in lower and 'not allowed' in lower:
+                last_err = 'org_scope'
+            elif 'project' in lower and ('not found' in lower or 'forbidden' in lower):
+                last_err = 'project_scope'
+            elif 'connect' in lower and ('refused' in lower or 'failed' in lower):
+                last_err = 'network'
             else:
                 last_err = redacted
-            # log recent errors in session_state if available
             try:
                 logs = st.session_state.get('ai_logs', [])
-                logs.append((redacted if last_err != 'invalid_api_key' else 'invalid_api_key')[:400])
+                logs.append((redacted if last_err not in {'invalid_api_key'} else last_err)[:400])
                 st.session_state['ai_logs'] = logs[-50:]
             except Exception:
                 pass
@@ -157,10 +186,26 @@ def _chat(client, messages, temperature: float, max_tokens: int) -> Tuple[Option
     return None, last_err or "Unknown error"
 
 
+def _fallback_summary(weather: Dict[str, float]) -> str:
+    temp = weather.get("temp") or weather.get("T2M")
+    wind = weather.get("wind") or weather.get("WS2M")
+    humidity = weather.get("humidity") or weather.get("RH2M")
+    rain = weather.get("rain") or weather.get("total_rain")
+    segs = []
+    if temp is not None:
+        segs.append(f"{temp:.1f}°C")
+    if humidity is not None:
+        segs.append(f"{humidity:.0f}% RH")
+    if wind is not None:
+        segs.append(f"{wind:.1f} m/s wind")
+    if rain is not None:
+        segs.append(("~" + f"{rain:.1f} mm rain") if rain > 0 else "dry")
+    return " | ".join(segs) if segs else "No data"
+
 def summarize_weather(weather: Dict[str, float]) -> str:
     client = _configure()
     if not client:
-        return "OpenAI not configured (add OPENAI_API_KEY)."
+        return _fallback_summary(weather)
     temp = weather.get("temp") or weather.get("T2M")
     wind = weather.get("wind") or weather.get("WS2M")
     humidity = weather.get("humidity") or weather.get("RH2M")
@@ -186,15 +231,17 @@ def summarize_weather(weather: Dict[str, float]) -> str:
     text, err = _chat(client, [{"role": "user", "content": prompt}], temperature=0.6, max_tokens=120)
     if err:
         if err == 'invalid_api_key':
-            return "OpenAI summary unavailable (invalid API key – rotate it in your OpenAI dashboard and update Streamlit secrets)."
-        return f"OpenAI summary unavailable ({err})."
+            return _fallback_summary(weather) + " (AI key invalid)"
+        if err in {'model_not_found','rate_limited','timeout','org_scope','project_scope','network'}:
+            return _fallback_summary(weather) + f" (AI {err.replace('_',' ')})"
+        return _fallback_summary(weather) + " (AI error)"
     return text or "No summary generated"
 
 
 def answer_weather_question(question: str, context: str = "") -> str:
     client = _configure()
     if not client:
-        return "(AI disabled) Configure OPENAI_API_KEY in .streamlit/secrets.toml or env."
+        return "(Local heuristic) AI disabled – add OPENAI_API_KEY for full answers."
     base = (
         "You are a concise helpful weather assistant. Use only the factual data provided in context if present. "
         "If user asks for a forecast beyond available range (5 days) politely explain the limit."
@@ -203,8 +250,10 @@ def answer_weather_question(question: str, context: str = "") -> str:
     text, err = _chat(client, [{"role": "user", "content": prompt}], temperature=0.5, max_tokens=400)
     if err:
         if err == 'invalid_api_key':
-            return "OpenAI answer unavailable (invalid API key – rotate key & update secrets)."
-        return f"OpenAI answer unavailable ({err})."
+            return "(Heuristic) Cannot answer – API key invalid."
+        if err in {'model_not_found','rate_limited','timeout','org_scope','project_scope','network'}:
+            return f"(Heuristic) AI unavailable ({err.replace('_',' ')}) – try later."
+        return "(Heuristic) AI error encountered."
     return text or "No answer generated"
 
 
