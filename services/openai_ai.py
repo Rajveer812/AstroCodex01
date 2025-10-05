@@ -5,7 +5,6 @@ Reads OPENAI_API_KEY from st.secrets then environment. Safe fallbacks if not con
 """
 from __future__ import annotations
 import os
-from functools import lru_cache
 from typing import Dict, Optional, Tuple, List
 
 import streamlit as st
@@ -28,34 +27,50 @@ _MODEL_CANDIDATES: List[str] = [
 _MODEL_CANDIDATES = [m for m in _MODEL_CANDIDATES if m]
 _SELECTED_MODEL: Optional[str] = None
 
-@lru_cache(maxsize=1)
-def _configure() -> Optional[OpenAI]:
-    if not _HAS_OPENAI:
-        return None
+_OPENAI_CLIENT: Optional[OpenAI] = None  # cached instance
+_OPENAI_KEY_FINGERPRINT: Optional[str] = None
+_OPENAI_LAST_ERROR: Optional[str] = None
+
+def _load_api_key() -> Optional[str]:
     key = None
-    try:
-        key = st.secrets.get("OPENAI_API_KEY")  # type: ignore[attr-defined]
-    except Exception:
-        key = None
+    # secrets first
+    if st is not None:
+        try:
+            key = st.secrets.get("OPENAI_API_KEY")  # type: ignore[attr-defined]
+        except Exception:
+            key = None
     if not key:
         key = os.getenv("OPENAI_API_KEY")
     if not key:
         return None
-    # Detect obvious placeholder patterns
+    key = key.strip()
+    if not key:
+        return None
     if key.startswith("REPLACE_") or key.startswith("YOUR_") or "REPLACE_WITH" in key:
-        # Store a helpful error in session logs
+        return None
+    return key
+
+
+def _configure(refresh: bool = False) -> Optional[OpenAI]:
+    global _OPENAI_CLIENT, _OPENAI_KEY_FINGERPRINT, _OPENAI_LAST_ERROR
+    if not _HAS_OPENAI:
+        _OPENAI_LAST_ERROR = "openai library not installed"
+        return None
+    key = _load_api_key()
+    if not key:
+        _OPENAI_LAST_ERROR = "missing_key"
+        _OPENAI_CLIENT = None
+        return None
+    fp = f"{key[:7]}:{len(key)}"
+    if refresh or _OPENAI_CLIENT is None or _OPENAI_KEY_FINGERPRINT != fp:
         try:
-            logs = st.session_state.get('ai_logs', [])
-            logs.append('Placeholder OpenAI API key detected. Provide a real key from https://platform.openai.com/account/api-keys')
-            st.session_state['ai_logs'] = logs[-50:]
-        except Exception:
-            pass
-        return None
-    try:
-        client = OpenAI(api_key=key)
-        return client
-    except Exception:
-        return None
+            _OPENAI_CLIENT = OpenAI(api_key=key)
+            _OPENAI_KEY_FINGERPRINT = fp
+            _OPENAI_LAST_ERROR = None
+        except Exception as e:  # pragma: no cover
+            _OPENAI_CLIENT = None
+            _OPENAI_LAST_ERROR = f"init:{e}"[:300]
+    return _OPENAI_CLIENT
 
 def is_openai_configured() -> bool:
     return _configure() is not None
@@ -82,11 +97,16 @@ def _chat(client, messages, temperature: float, max_tokens: int) -> Tuple[Option
             _SELECTED_MODEL = model
             return (resp.choices[0].message.content or "").strip(), None
         except Exception as e:  # pragma: no cover
-            last_err = f"{model}: {e.__class__.__name__}: {e}"
+            msg = str(e)
+            # Detect 401 invalid key pattern & force refresh next time
+            if "401" in msg or "invalid_api_key" in msg or "Incorrect API key" in msg:
+                # Invalidate cached client so a corrected key takes effect without full restart
+                _configure(refresh=True)
+            last_err = f"{model}: {e.__class__.__name__}: {msg}"[:400]
             # log recent errors in session_state if available
             try:
                 logs = st.session_state.get('ai_logs', [])
-                logs.append(last_err[:400])
+                logs.append(last_err)
                 st.session_state['ai_logs'] = logs[-50:]
             except Exception:
                 pass
@@ -144,8 +164,16 @@ def answer_weather_question(question: str, context: str = "") -> str:
 def check_openai_health() -> dict:
     client = _configure()
     if not client:
-        return {"configured": False, "ok": False, "error": "API key missing or library not installed"}
+        return {"configured": False, "ok": False, "error": _OPENAI_LAST_ERROR or "missing"}
     text, err = _chat(client, [{"role": "user", "content": "Return the word OK"}], temperature=0, max_tokens=5)
     if err:
-        return {"configured": True, "ok": False, "error": err[:300]}
+        return {"configured": True, "ok": False, "error": err[:300], "model": _SELECTED_MODEL}
     return {"configured": True, "ok": True, "model": _SELECTED_MODEL}
+
+def get_openai_diagnostics() -> dict:
+    return {
+        "configured": is_openai_configured(),
+        "last_error": _OPENAI_LAST_ERROR,
+        "model_selected": _SELECTED_MODEL,
+        "key_fingerprint": _OPENAI_KEY_FINGERPRINT,
+    }
