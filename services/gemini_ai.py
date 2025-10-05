@@ -10,6 +10,10 @@ import streamlit as st
 from functools import lru_cache
 from typing import Dict, Optional, Tuple, List
 import traceback
+from functools import lru_cache
+
+# Track last error globally for diagnostics
+_LAST_ERROR: Optional[str] = None
 
 try:
     import google.generativeai as genai  # type: ignore
@@ -17,22 +21,22 @@ try:
 except Exception:  # pragma: no cover
     _HAS_LIB = False
 
-# Model selection: try user override via env GEMINI_MODEL first, then fallback list.
-_MODEL_CANDIDATES = [
-    os.getenv("GEMINI_MODEL"),  # optional explicit override
+_STATIC_FALLBACK_MODELS = [
     "gemini-1.5-flash-latest",
     "gemini-1.5-flash",
     "gemini-1.5-pro-latest",
     "gemini-1.5-pro",
-    "gemini-pro",              # older naming
-    "gemini-1.0-pro",          # legacy fallback
 ]
-_MODEL_CANDIDATES = [m for m in _MODEL_CANDIDATES if m]  # remove Nones
+_DEPRECATED_MODELS = {"gemini-pro", "gemini-1.0-pro"}
+_MODEL_ENV_OVERRIDE = os.getenv("GEMINI_MODEL")
+_MODEL_CANDIDATES: List[str] = []  # populated dynamically on first use
 _SELECTED_MODEL: Optional[str] = None
 _MODEL_OVERRIDE: Optional[str] = None  # explicit user-chosen model
 
 
 def get_model_candidates() -> List[str]:  # public
+    if not _MODEL_CANDIDATES:
+        _refresh_models()
     return list(_MODEL_CANDIDATES)
 
 
@@ -62,9 +66,47 @@ def _configure() -> bool:
         return False
     try:
         genai.configure(api_key=api_key)
+        # On initial configure, refresh models list lazily
         return True
-    except Exception:
+    except Exception as e:
+        global _LAST_ERROR
+        _LAST_ERROR = f"configure: {e}"[:300]
         return False
+
+def _refresh_models():  # populate _MODEL_CANDIDATES
+    global _MODEL_CANDIDATES, _LAST_ERROR
+    discovered: List[str] = []
+    if not _HAS_LIB:
+        _MODEL_CANDIDATES = list(_STATIC_FALLBACK_MODELS)
+        return
+    if not _configure():
+        _MODEL_CANDIDATES = list(_STATIC_FALLBACK_MODELS)
+        return
+    try:
+        models = genai.list_models()
+        for m in models:
+            name = getattr(m, 'name', '')
+            # We only keep models that support generateContent (capability check)
+            caps = getattr(m, 'supported_generation_methods', [])
+            if 'generateContent' in caps and name.startswith('models/'):
+                plain = name.split('/',1)[1]
+                if plain not in _DEPRECATED_MODELS:
+                    discovered.append(plain)
+    except Exception as e:  # fallback gracefully
+        _LAST_ERROR = f"list_models: {e}"[:300]
+    # Merge static fallback (preserve order preference) + discovered uniques
+    merged = []
+    seen = set()
+    for name in (_STATIC_FALLBACK_MODELS + discovered):
+        if name not in seen:
+            seen.add(name)
+            merged.append(name)
+    # Apply explicit override to front if present
+    if _MODEL_ENV_OVERRIDE and _MODEL_ENV_OVERRIDE in merged:
+        merged = [_MODEL_ENV_OVERRIDE] + [m for m in merged if m != _MODEL_ENV_OVERRIDE]
+    elif _MODEL_ENV_OVERRIDE:
+        merged.insert(0, _MODEL_ENV_OVERRIDE)
+    _MODEL_CANDIDATES = merged[:25]  # limit size
 
 
 def _try_generate(prompt: str) -> Tuple[Optional[str], Optional[str]]:
@@ -77,7 +119,9 @@ def _try_generate(prompt: str) -> Tuple[Optional[str], Optional[str]]:
     global _SELECTED_MODEL
     last_error: Optional[str] = None
     # If we already have a working model, try it first
-    candidates = []
+    if not _MODEL_CANDIDATES:
+        _refresh_models()
+    candidates: List[str] = []
     if _MODEL_OVERRIDE:
         candidates.append(_MODEL_OVERRIDE)
     if _SELECTED_MODEL and _SELECTED_MODEL not in candidates:
@@ -91,12 +135,19 @@ def _try_generate(prompt: str) -> Tuple[Optional[str], Optional[str]]:
             _SELECTED_MODEL = model_name  # cache working model
             return text, None
         except Exception as e:  # pragma: no cover
-            last_error = f"{model_name}: {e.__class__.__name__}: {e}"
+            err_txt = f"{model_name}: {e.__class__.__name__}: {e}"
+            last_error = err_txt
+            if 'NotFound' in err_txt or '404' in err_txt:
+                # Model deprecated or unavailable; refresh list once and retry remaining
+                try:
+                    _refresh_models()
+                except Exception:
+                    pass
             # Opportunistic debug logging if app prepared session storage
             try:  # avoid hard dependency
                 if hasattr(st, 'session_state'):
                     logs = st.session_state.get('ai_logs', [])
-                    logs.append(last_error[:400])
+                    logs.append(err_txt[:400])
                     st.session_state['ai_logs'] = logs[-50:]  # keep last 50
             except Exception:
                 pass
@@ -114,7 +165,7 @@ def check_gemini_health() -> dict:
     if not lib_ok:
         return {"library": False, "configured": False, "ok": False, "error": "google-generativeai not installed"}
     if not configured:
-        return {"library": True, "configured": False, "ok": False, "error": "API key missing/invalid"}
+        return {"library": True, "configured": False, "ok": False, "error": _LAST_ERROR or "API key missing/invalid"}
     # Minimal probe: short test prompt (won't burn many tokens)
     text, err = _try_generate("Return the word OK")
     if err:
