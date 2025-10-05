@@ -1,25 +1,29 @@
-# 🌦️ Will It Rain On My Parade?
+# 🌦️ Astrocast
 
-A web app built for **NASA Space Apps Challenge 2025 (Udaipur)**.  
-It predicts whether it will rain on a chosen date & city, combining **real-time weather forecasts** with **NASA Earth observation data**.
+Astrocast is an intelligent weather & climate planning assistant for outdoor events. It blends real-time forecasts, NASA climatology, air quality and AI commentary.
 
 ---
 
-## 🚀 Features (MVP)
-✅ City + Date Input  
-✅ Weather Forecast (rain probability, temp, humidity, wind speed)  
-✅ Clear Outputs →  
-- "Yes, it may rain 🌧️"  
-- "No, skies look clear ☀️"  
-- "Uncertain 🌈"  
+## 🚀 Key Features
+✅ City + Date Weather Forecast (5-day window)  
+✅ Parade / Event Suitability Score (0–100)  
+✅ AI Weather Summary & Share/Copy Card  
+✅ Dual-City Weekend Comparison (scores, rain probability, AI pros/cons)  
+✅ NASA POWER Historical Averages  
+✅ Climate Change Insight (custom periods, anomalies %, dual-axis Plotly chart, AI commentary)  
+✅ Air Pollution Metrics (AQI + key pollutants)  
+✅ Interactive Map with NASA GIBS Layers  
 
 ---
 
 ## 🛠️ Tech Stack
-- [Python 3](https://www.python.org/)  
-- [Streamlit](https://streamlit.io/) → UI framework  
-- [OpenWeatherMap API](https://openweathermap.org/api) → 5-day forecast data  
-- [NASA POWER API](https://power.larc.nasa.gov/) → Historical rainfall trends *(planned)*  
+- Python 3  
+- Streamlit (UI)  
+- OpenWeatherMap API (Forecast)  
+- NASA POWER API (Climatology)  
+- OpenAI API (Summaries & Insights)  
+- Folium + NASA GIBS (Map Layers)  
+- Plotly (Dual-axis climate chart)  
 
 ---
 
@@ -69,11 +73,13 @@ streamlit run app.py
 
 NASA Space Apps Challenge 2025 Participant
 
-📊 Future Features
-NASA historical rainfall integration
-Parade Suitability Score (0–100)
-Interactive forecast graphs
-Multi-language support
+## 📊 Roadmap Ideas
+- Multi-city (3+ cities) comparison
+- Downloadable PDF / report export
+- ML-based localized rain probability refinement
+- Multi-language support
+- User accounts & saved locations
+- Event-type specific scoring profiles
 
 Copy code
 ---
