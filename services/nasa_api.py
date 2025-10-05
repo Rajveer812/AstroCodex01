@@ -8,6 +8,11 @@ missing optional dependency surfaces a clear message in the Streamlit UI.
 # Import required modules
 import requests
 from datetime import datetime, timedelta
+import time
+from functools import lru_cache
+from typing import Optional
+
+from config import settings
 
 try:
 	from geopy.geocoders import Nominatim  # type: ignore
@@ -19,11 +24,41 @@ else:
 	_geopy_import_error = None
 
 
+@lru_cache(maxsize=256)
+def _geocode_city_cached(city_name: str) -> Optional[tuple[float, float]]:
+	"""Internal cached geocoding call (returns None if not found)."""
+	geolocator = Nominatim(user_agent=settings.GEOCODE_USER_AGENT)
+	return _geocode_with_retries(geolocator, city_name)
+
+
+def _geocode_with_retries(geolocator, city_name: str) -> Optional[tuple[float, float]]:
+	retries = settings.GEOCODE_MAX_RETRIES
+	base_delay = settings.GEOCODE_BACKOFF_BASE
+	for attempt in range(1, retries + 1):
+		try:
+			location = geolocator.geocode(
+				city_name,
+				timeout=settings.GEOCODE_TIMEOUT_SECONDS,
+			)
+			if not location:
+				return None
+			return (location.latitude, location.longitude)
+		except Exception as e:  # Broad catch due to varied geopy exceptions
+			if attempt == retries:
+				raise RuntimeError(
+					f"Geocoding failed for '{city_name}' after {retries} attempts: {e}"
+				)
+			# Exponential backoff with jitter
+			sleep_for = base_delay * (2 ** (attempt - 1)) + (0.05 * attempt)
+			time.sleep(sleep_for)
+	return None
+
+
 def get_city_coordinates(city_name: str) -> tuple[float, float]:
-	"""Return latitude and longitude for a city name using geopy.
+	"""Return latitude and longitude for a city name using geopy with retries & cache.
 
 	Raises:
-		RuntimeError: If geopy is not installed.
+		RuntimeError: If geopy missing or repeated failures occur.
 		ValueError: If the city cannot be geocoded.
 	"""
 	if _geopy_import_error or Nominatim is None:  # type: ignore
@@ -31,11 +66,10 @@ def get_city_coordinates(city_name: str) -> tuple[float, float]:
 			"geopy is required for city geocoding but is not installed. "
 			"Add 'geopy' to requirements.txt and reinstall."
 		)
-	geolocator = Nominatim(user_agent="astro_codex_app")
-	location = geolocator.geocode(city_name)
-	if not location:
-		raise ValueError(f"City '{city_name}' not found.")
-	return location.latitude, location.longitude
+	coords = _geocode_city_cached(city_name.strip())
+	if not coords:
+		raise ValueError(f"City '{city_name}' not found or geocoding unavailable.")
+	return coords
 
 
 def fetch_nasa_power_monthly_averages(city_name: str, year: int, month: int) -> dict:
