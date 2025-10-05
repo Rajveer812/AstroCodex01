@@ -6,6 +6,7 @@ Reads OPENAI_API_KEY from st.secrets then environment. Safe fallbacks if not con
 from __future__ import annotations
 import os
 from functools import lru_cache
+import re
 from typing import Dict, Optional, Tuple, List
 
 import streamlit as st
@@ -82,11 +83,18 @@ def _chat(client, messages, temperature: float, max_tokens: int) -> Tuple[Option
             _SELECTED_MODEL = model
             return (resp.choices[0].message.content or "").strip(), None
         except Exception as e:  # pragma: no cover
-            last_err = f"{model}: {e.__class__.__name__}: {e}"
+            # Redact any API key fragments from the error string
+            raw = f"{model}: {e.__class__.__name__}: {e}"
+            redacted = _redact_keys(raw)
+            # Map common invalid key indicators to a short code
+            if 'invalid_api_key' in raw.lower() or 'incorrect api key' in raw.lower():
+                last_err = 'invalid_api_key'
+            else:
+                last_err = redacted
             # log recent errors in session_state if available
             try:
                 logs = st.session_state.get('ai_logs', [])
-                logs.append(last_err[:400])
+                logs.append((redacted if last_err != 'invalid_api_key' else 'invalid_api_key')[:400])
                 st.session_state['ai_logs'] = logs[-50:]
             except Exception:
                 pass
@@ -122,6 +130,8 @@ def summarize_weather(weather: Dict[str, float]) -> str:
     )
     text, err = _chat(client, [{"role": "user", "content": prompt}], temperature=0.6, max_tokens=120)
     if err:
+        if err == 'invalid_api_key':
+            return "OpenAI summary unavailable (invalid API key – rotate it in your OpenAI dashboard and update Streamlit secrets)."
         return f"OpenAI summary unavailable ({err})."
     return text or "No summary generated"
 
@@ -137,6 +147,8 @@ def answer_weather_question(question: str, context: str = "") -> str:
     prompt = f"{base}\nContext:\n{context}\n\nUser question: {question}\nAnswer:"
     text, err = _chat(client, [{"role": "user", "content": prompt}], temperature=0.5, max_tokens=400)
     if err:
+        if err == 'invalid_api_key':
+            return "OpenAI answer unavailable (invalid API key – rotate key & update secrets)."
         return f"OpenAI answer unavailable ({err})."
     return text or "No answer generated"
 
@@ -149,3 +161,10 @@ def check_openai_health() -> dict:
     if err:
         return {"configured": True, "ok": False, "error": err[:300]}
     return {"configured": True, "ok": True, "model": _SELECTED_MODEL}
+
+
+_KEY_PATTERN = re.compile(r"sk-[a-zA-Z0-9_-]{8,}")
+
+def _redact_keys(message: str) -> str:
+    """Redact any OpenAI-style keys from an error message to avoid leaking them in UI/logs."""
+    return _KEY_PATTERN.sub("sk-***redacted***", message)
