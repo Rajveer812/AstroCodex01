@@ -189,6 +189,12 @@ def _chat(client, messages, temperature: float, max_tokens: int) -> Tuple[Option
                 st.session_state['ai_logs'] = logs[-50:]
             except Exception:
                 pass
+            # If key invalid, flush the cached client so a rotated key is picked up next attempt
+            if last_err == 'invalid_api_key':
+                try:
+                    _OPENAI_CLIENT_CACHE.pop('client', None)
+                except Exception:
+                    pass
             continue
     return None, last_err or "Unknown error"
 
@@ -262,7 +268,7 @@ def answer_weather_question(question: str, context: str = "") -> str:
                 return gemini_ai.answer_weather_question(question, context)  # type: ignore[attr-defined]
             except Exception:
                 pass
-        return "(Heuristic) Provide OPENAI_API_KEY for richer answers."
+        return _heuristic_answer(question, context)
     base = (
         "You are a concise helpful weather assistant. Use only the factual data provided in context if present. "
         "If user asks for a forecast beyond available range (5 days) politely explain the limit."
@@ -275,7 +281,12 @@ def answer_weather_question(question: str, context: str = "") -> str:
                 return gemini_ai.answer_weather_question(question, context)  # type: ignore[attr-defined]
             except Exception:
                 pass
-        return "(Heuristic) AI unavailable."
+        # Refresh validation snapshot after an error so UI can react
+        try:
+            st.session_state['openai_validation'] = validate_openai_key()
+        except Exception:
+            pass
+        return _heuristic_answer(question, context)
     return text or "No answer generated"
 
 
@@ -315,3 +326,49 @@ def validate_openai_key() -> Dict[str, Optional[str]]:
         code = err if err in {"invalid_api_key","model_not_found","rate_limited","timeout","org_scope","project_scope","network"} else "other"
         return {"configured": True, "ok": False, "code": code, "model": _SELECTED_MODEL, "error": err}
     return {"configured": True, "ok": True, "code": "ok", "model": _SELECTED_MODEL, "error": None}
+
+
+def _heuristic_answer(question: str, context: str) -> str:
+    """Very lightweight rule-based fallback answer using provided context string.
+
+    Extracts temp, humidity, wind, rain metrics if present in context and builds a concise response.
+    """
+    q_lower = question.lower()
+    import re as _re
+    metrics = {}
+    # Expected context pattern inserted by app: 'temp 23.4C, humidity 55%, wind 3.2 m/s, rain 0.0 mm'
+    temp_m = _re.search(r"temp\s+(-?\d+\.?\d*)c", context, _re.IGNORECASE)
+    if temp_m:
+        metrics['temp'] = float(temp_m.group(1))
+    hum_m = _re.search(r"humidity\s+(\d+)%", context, _re.IGNORECASE)
+    if hum_m:
+        metrics['humidity'] = float(hum_m.group(1))
+    wind_m = _re.search(r"wind\s+(\d+\.?\d*)\s*m/s", context, _re.IGNORECASE)
+    if wind_m:
+        metrics['wind'] = float(wind_m.group(1))
+    rain_m = _re.search(r"rain\s+(\d+\.?\d*)\s*mm", context, _re.IGNORECASE)
+    if rain_m:
+        metrics['rain'] = float(rain_m.group(1))
+    parts: List[str] = []
+    if 'temp' in metrics and ('temp' in q_lower or 'temperature' in q_lower or not parts):
+        parts.append(f"Temperature approx {metrics['temp']:.1f}°C")
+    if 'humidity' in metrics and ('humidity' in q_lower):
+        parts.append(f"Humidity about {metrics['humidity']:.0f}%")
+    if 'wind' in metrics and ('wind' in q_lower or 'breeze' in q_lower):
+        parts.append(f"Wind near {metrics['wind']:.1f} m/s")
+    if 'rain' in metrics and ('rain' in q_lower or 'precip' in q_lower or 'wet' in q_lower):
+        if metrics['rain'] > 0:
+            parts.append(f"Rain expected ~{metrics['rain']:.1f} mm")
+        else:
+            parts.append("Little to no rain expected")
+    if not parts:
+        if metrics:
+            # Provide generic summary if user asked something else
+            base = [f"{metrics['temp']:.1f}°C" if 'temp' in metrics else None,
+                    f"{metrics['humidity']:.0f}% RH" if 'humidity' in metrics else None,
+                    f"{metrics['wind']:.1f} m/s wind" if 'wind' in metrics else None,
+                    (f"{metrics['rain']:.1f} mm rain" if metrics.get('rain',0)>0 else 'dry') if 'rain' in metrics else None]
+            parts = [p for p in base if p]
+        else:
+            return "No AI available and insufficient context to answer." 
+    return ", ".join(parts) + ". (AI fallback)"
