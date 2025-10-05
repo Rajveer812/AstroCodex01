@@ -705,29 +705,20 @@ if st.session_state['show_chat']:
                 ctx_lines.append(
                     f"today(temp={weather['avg_temp']:.1f}C, humidity={weather['avg_humidity']:.0f}%, wind={weather['avg_wind']:.1f}m/s, rain={weather['total_rain']:.1f}mm)"
                 )
-            # Attempt to derive tomorrow date metrics from loaded forecast data if present
+            # Timezone-aware tomorrow aggregation
             tomorrow_line = None
             try:
-                if 'data' in locals() and data and 'list' in data and city:
-                    import datetime as _dt
-                    tomorrow = (datetime.date.today() + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
-                    # Collect 3h slices for tomorrow
-                    t_entries = [e for e in data['list'] if e['dt_txt'].startswith(tomorrow)]
-                    if t_entries:
-                        temps = [e['main']['temp'] for e in t_entries]
-                        hums = [e['main']['humidity'] for e in t_entries]
-                        winds = [e['wind']['speed'] for e in t_entries]
-                        rains = []
-                        for e in t_entries:
-                            if 'rain' in e and isinstance(e['rain'], dict):
-                                rains.append(e['rain'].get('3h', 0.0))
-                        total_rain = sum(rains) if rains else 0.0
+                from utils.helpers import aggregate_daily_by_timezone
+                if 'data' in locals() and data:
+                    agg = aggregate_daily_by_timezone(data, day_offset=1)
+                    if agg:
                         tomorrow_line = (
-                            f"tomorrow(date={tomorrow}, temp_avg={sum(temps)/len(temps):.1f}C, humidity_avg={sum(hums)/len(hums):.0f}%, "
-                            f"wind_avg={sum(winds)/len(winds):.1f}m/s, rain_total={total_rain:.1f}mm)"
+                            f"tomorrow(date={agg['date']}, temp_avg={agg['avg_temp']:.1f}C, "
+                            f"humidity_avg={agg['avg_humidity']:.0f}%, wind_avg={agg['avg_wind']:.1f}m/s, "
+                            f"rain_total={agg['total_rain']:.1f}mm)"
                         )
             except Exception:
-                pass
+                tomorrow_line = None
             if tomorrow_line:
                 ctx_lines.append(tomorrow_line)
             context = "\n".join(ctx_lines)

@@ -33,6 +33,55 @@ WEATHER_EMOJI_MAP = {
     ('Tornado','night'): '🌪️'
 }
 
+def aggregate_daily_by_timezone(data, day_offset: int = 1):
+    """Aggregate forecast metrics for a future day using the city's timezone offset.
+
+    Parameters:
+        data: full OpenWeather forecast JSON (must include 'list' and 'city.timezone').
+        day_offset: number of days from 'today' in the city local time (1 = tomorrow).
+
+    Returns dict with keys (date, avg_temp, avg_humidity, avg_wind, total_rain) or None if unavailable.
+    """
+    import datetime as _dt
+    if not data or 'list' not in data or 'city' not in data:
+        return None
+    tz_offset = data.get('city', {}).get('timezone')  # seconds
+    if tz_offset is None:
+        return None
+    now_utc = _dt.datetime.utcnow()
+    city_now = now_utc + _dt.timedelta(seconds=tz_offset)
+    target_date = (city_now + _dt.timedelta(days=day_offset)).date()
+    # Collect slices whose local date matches target_date
+    temps = []; hums = []; winds = []; rains = []
+    for entry in data['list']:
+        dt_txt = entry.get('dt_txt')
+        if not dt_txt:
+            continue
+        try:
+            naive = _dt.datetime.strptime(dt_txt, '%Y-%m-%d %H:%M:%S')
+        except Exception:
+            continue
+        local_dt = naive + _dt.timedelta(seconds=tz_offset)
+        if local_dt.date() != target_date:
+            continue
+        temps.append(entry['main']['temp'])
+        hums.append(entry['main']['humidity'])
+        winds.append(entry['wind']['speed'])
+        rain_val = 0.0
+        r = entry.get('rain')
+        if isinstance(r, dict):
+            rain_val = r.get('3h', 0.0) or 0.0
+        rains.append(rain_val)
+    if not temps:
+        return None
+    return {
+        'date': target_date.isoformat(),
+        'avg_temp': sum(temps)/len(temps),
+        'avg_humidity': sum(hums)/len(hums),
+        'avg_wind': sum(winds)/len(winds),
+        'total_rain': sum(rains)
+    }
+
 def process_forecast(data, target_date: str):
     """Filter forecasts for the target date and compute averages.
     Adds a dominant condition and emoji chosen by frequency; falls back to first entry.
