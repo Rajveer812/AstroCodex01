@@ -10,19 +10,11 @@ from typing import Dict, Optional, Tuple, List
 
 import streamlit as st
 
-try:  # Lazy import guard (modern client)
+try:  # Lazy import guard
     from openai import OpenAI  # type: ignore
     _HAS_OPENAI = True
-    _LEGACY = False
 except Exception:  # pragma: no cover
-    # Attempt legacy import style (deprecated) so deployed env with old openai still functions.
-    try:  # pragma: no cover - best effort
-        import openai  # type: ignore
-        _HAS_OPENAI = True
-        _LEGACY = True
-    except Exception:
-        _HAS_OPENAI = False
-        _LEGACY = False
+    _HAS_OPENAI = False
 
 _MODEL_CANDIDATES: List[str] = [
     os.getenv("OPENAI_MODEL"),  # explicit override if provided
@@ -35,20 +27,6 @@ _MODEL_CANDIDATES: List[str] = [
 ]
 _MODEL_CANDIDATES = [m for m in _MODEL_CANDIDATES if m]
 _SELECTED_MODEL: Optional[str] = None
-
-def reset_openai_client():  # pragma: no cover - utility for manual reset
-    """Clear cached OpenAI client and selected model.
-
-    Useful on Streamlit Cloud if secrets were added AFTER the process started and
-    the cached _configure() returned None initially. Call this then re-check
-    configuration.
-    """
-    global _SELECTED_MODEL
-    try:
-        _configure.cache_clear()  # type: ignore[attr-defined]
-    except Exception:
-        pass
-    _SELECTED_MODEL = None
 
 @lru_cache(maxsize=1)
 def _configure() -> Optional[OpenAI]:
@@ -74,14 +52,8 @@ def _configure() -> Optional[OpenAI]:
             pass
         return None
     try:
-        if _LEGACY:
-            # Legacy global api_key style
-            import openai  # type: ignore
-            openai.api_key = key  # type: ignore
-            return openai  # type: ignore
-        else:
-            client = OpenAI(api_key=key)
-            return client
+        client = OpenAI(api_key=key)
+        return client
     except Exception:
         return None
 
@@ -125,10 +97,7 @@ def _chat(client, messages, temperature: float, max_tokens: int) -> Tuple[Option
 def summarize_weather(weather: Dict[str, float]) -> str:
     client = _configure()
     if not client:
-        return (
-            "OpenAI not configured. Add OPENAI_API_KEY to .streamlit/secrets.toml or set the environment variable. "
-            "See README section 'AI Configuration'."
-        )
+        return "OpenAI not configured (add OPENAI_API_KEY)."
     temp = weather.get("temp") or weather.get("T2M")
     wind = weather.get("wind") or weather.get("WS2M")
     humidity = weather.get("humidity") or weather.get("RH2M")
@@ -160,10 +129,7 @@ def summarize_weather(weather: Dict[str, float]) -> str:
 def answer_weather_question(question: str, context: str = "") -> str:
     client = _configure()
     if not client:
-        return (
-            "(AI disabled) Provide OPENAI_API_KEY in .streamlit/secrets.toml or as an environment variable. "
-            "See README for instructions."
-        )
+        return "(AI disabled) Configure OPENAI_API_KEY in .streamlit/secrets.toml or env."
     base = (
         "You are a concise helpful weather assistant. Use only the factual data provided in context if present. "
         "If user asks for a forecast beyond available range (5 days) politely explain the limit."
@@ -179,32 +145,7 @@ def check_openai_health() -> dict:
     client = _configure()
     if not client:
         return {"configured": False, "ok": False, "error": "API key missing or library not installed"}
-    # If legacy client, perform a minimal completion compatibility probe
-    if _LEGACY:
-        try:
-            import openai  # type: ignore
-            # Use old API (may fail silently if extremely old)
-            openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
-                messages=[{"role": "user", "content": "Say OK"}],
-                max_tokens=5,
-                temperature=0,
-            )
-            return {"configured": True, "ok": True, "model": _SELECTED_MODEL or "gpt-3.5-turbo", "legacy": True}
-        except Exception as e:  # pragma: no cover
-            return {"configured": True, "ok": False, "error": f"Legacy client error: {e}"[:300], "legacy": True}
     text, err = _chat(client, [{"role": "user", "content": "Return the word OK"}], temperature=0, max_tokens=5)
     if err:
-        return {"configured": True, "ok": False, "error": err[:300], "legacy": False}
-    return {"configured": True, "ok": True, "model": _SELECTED_MODEL, "legacy": False}
-
-def openai_diagnostics() -> dict:
-    """Return a detailed diagnostics payload for UI display."""
-    info = check_openai_health()
-    info.update({
-        "env_has_key": bool(os.getenv("OPENAI_API_KEY")),
-        "secrets_has_key": bool(getattr(st.secrets, "_secrets", {}).get("OPENAI_API_KEY")) if hasattr(st, 'secrets') else False,
-        "legacy_mode": info.get("legacy", False),
-        "cached": _configure.cache_info().hits if hasattr(_configure, 'cache_info') else None,
-    })
-    return info
+        return {"configured": True, "ok": False, "error": err[:300]}
+    return {"configured": True, "ok": True, "model": _SELECTED_MODEL}

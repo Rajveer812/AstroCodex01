@@ -3,5 +3,5 @@ requests
 plotly
 folium
 streamlit-folium
-openai>=1.30.0,<2.0.0
+openai
 geopy>=2.4,<2.5
